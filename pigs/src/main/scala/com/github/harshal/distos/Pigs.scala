@@ -1,7 +1,11 @@
 package com.github.harshal.distos
 
-import scala.actors.Actor
-import util.Random
+import scala.actors._
+import scala.actors.Actor._
+import scala.actors.remote._
+import scala.actors.remote.RemoteActor._
+import scala.util.Random
+
 import Constants._
 import Messages._
 
@@ -20,7 +24,6 @@ object Messages {
   case class Trajectory(x: Int)
   case class Status
   case class EndGame(x: Int)
-  case class Exit
   
   // Pig => Game Engine
   case class Done
@@ -70,6 +73,8 @@ class Pig extends Entity with Actor {
   }
   
   def act() {
+    alive(BASE_PORT + currentPos)
+    register(Symbol(currentPos.toString), self)
     loop {
       react {
         case Map(map) => { 
@@ -100,9 +105,7 @@ class Pig extends Entity with Actor {
         case Status => {
           sender ! WasHit(hit)
         }
-        case Exit => {
-          exit()
-        }
+        case Exit => exit()
         case m => throw new Error("Unknown message: " + m)
       }
     }
