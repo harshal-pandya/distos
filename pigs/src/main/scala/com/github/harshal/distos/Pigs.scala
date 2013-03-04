@@ -4,10 +4,10 @@ import scala.actors.Actor
 import util.Random
 import Constants._
 import Messages._
-import com.sun.j3d.loaders.lw3d.TargaReader
 
 object Constants {
   val ROUND_TIME = 1000
+  val BASE_PORT  = 10000
 }
 
 object Messages {
@@ -34,8 +34,9 @@ object Messages {
   
 }
 
-
 abstract class Entity 
+
+class StoneColumn(pos:Int) extends Entity
 
 class Pig extends Entity with Actor {
   
@@ -108,8 +109,6 @@ class Pig extends Entity with Actor {
   }
 }
 
-class StoneColumn(pos:Int) extends Entity
-
 class GameEngine(numPigs:Int) {
   
   private val rand = new Random()
@@ -117,8 +116,6 @@ class GameEngine(numPigs:Int) {
   private val worldSize = 2*numPigs
   
   def generateTopology: Seq[Pig] ={
-//    var prev:Pig = null
-//    var first:Pig = null
     
     val pigs = (1 to numPigs).map(_ => new Pig)
     
@@ -130,36 +127,16 @@ class GameEngine(numPigs:Int) {
     pigs.head.left  = pigs.last
     pigs.last.right = pigs.head
     
-//    val pigs = {
-//      for (i <- 1 to numPigs) yield {
-//        val pig = new Pig
-//        
-//        if (i==1) {
-//          first = pig
-//        }
-//        else if(i==numPigs){
-//          pig.left = prev
-//          prev.right = pig
-//          first.left=pig
-//        }
-//        else{
-//          pig.left = prev
-//          prev.right = pig
-//        }
-//        
-//        prev = pig
-//        pig
-//      }
-//    }
-//    
     pigs
   }
 
   def generateMap: (Seq[Pig], Array[Option[Entity]]) = {
     
-    val world = Array[Option[Entity]](Seq.fill(worldSize)(None):_*)
+    val world = Array.fill[Option[Entity]](worldSize)(None)
+    
     //Generate a random number of columns bounded by the number of pigs
     val numColumns = rand.nextInt(numPigs)
+    
     //Generate a random permutation of the array indices
     val posVector: Seq[Int] = rand.shuffle(0 until worldSize)
 
@@ -197,7 +174,6 @@ class GameEngine(numPigs:Int) {
     for (pig <- pigs)
       pig.start()
       
-    // Send out the maps
     for (pig <- pigs)
       pig !? Map(world)
       
