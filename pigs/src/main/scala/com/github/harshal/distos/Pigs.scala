@@ -20,6 +20,7 @@ object Messages {
   case class Trajectory(x: Int)
   case class Status
   case class EndGame(x: Int)
+  case class Exit
   
   // Pig => Game Engine
   case class Done
@@ -98,7 +99,10 @@ class Pig extends Entity with Actor {
         case Status => {
           sender ! WasHit(hit)
         }
-        case _ => throw new Error("Unknown message")
+        case Exit => {
+          exit()
+        }
+        case m => throw new Error("Unknown message: " + m)
       }
     }
   }
@@ -110,17 +114,17 @@ class GameEngine(numPigs:Int) {
   
   private val rand = new Random()
   
-  private val worldSize = 3 * numPigs
+  private val worldSize = 2*numPigs
   
   def generateTopology: Seq[Pig] ={
-    var prev:Pig = null
-    var first:Pig = null
+//    var prev:Pig = null
+//    var first:Pig = null
     
-    val pigs = (1 to numPigs).map(i => { new Pig })
+    val pigs = (1 to numPigs).map(_ => new Pig)
     
     for ((prev, curr) <- pigs.zip(pigs.drop(1))) {
-      prev.left = curr
-      curr.right = prev
+      prev.right = curr
+      curr.left  = prev
     }
     
     pigs.head.left  = pigs.last
@@ -153,7 +157,6 @@ class GameEngine(numPigs:Int) {
 
   def generateMap: (Seq[Pig], Array[Option[Entity]]) = {
     
-    val worldSize = 3 * numPigs
     val world = Array[Option[Entity]](Seq.fill(worldSize)(None):_*)
     //Generate a random number of columns bounded by the number of pigs
     val numColumns = rand.nextInt(numPigs)
@@ -197,6 +200,8 @@ class GameEngine(numPigs:Int) {
     // Send out the maps
     for (pig <- pigs)
       pig !? Map(world)
+      
+    println(world.mkString("\n"))
     
     nearest ! Trajectory(targetPos) 
     
@@ -205,9 +210,18 @@ class GameEngine(numPigs:Int) {
 
     // End the round
     for (pig <- pigs)
-      pig ! EndGame
+      pig ! EndGame(targetPos)
       
+    println("---------------------")
+    println(world.mkString("\n"))
+    println("---------------------")
+    println("target: " + targetPos)
+    println("---------------------")
     println(statusAll(pigs).mkString("\n"))
+    
+    // End the round
+    for (pig <- pigs)
+      pig ! Exit
 
   }
 }
