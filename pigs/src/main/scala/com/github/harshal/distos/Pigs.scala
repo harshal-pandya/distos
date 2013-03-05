@@ -54,13 +54,13 @@ class Pig extends Entity with Actor {
   var gameMap: GameMap = null
   
   def available(pos: Int): Boolean = {
-    if (pos < 0 || gameMap.size <= pos)
-      return false
- 
-    gameMap(pos) match {
-      case None => true
-      case _ => false
+    if (validPos(pos)){
+      gameMap(pos) match {
+        case None => true
+        case _ => false
+      }
     }
+    else false
   }
   
   def move() {
@@ -71,6 +71,55 @@ class Pig extends Entity with Actor {
     else
       ()
   }
+
+  def move(pos:Int){
+    if (available(pos)) currentPos = pos
+    else ()
+  }
+
+  def moveIfRequired(targetPos:Int){
+    if(currentPos == targetPos){
+      move()
+    }
+    else if(currentPos-1 == targetPos && isNotEmpty(currentPos-1)){
+      move(currentPos+1)
+    }
+    else if(currentPos-2 == targetPos && isNotEmpty(currentPos-2) && isColumn(currentPos-1)){
+      move(currentPos+1)
+    }
+    else ()
+  }
+
+  def isColumn(pos:Int):Boolean = {
+    if (validPos(pos)){
+      gameMap(pos) match {
+        case Some(StoneColumn) => true
+        case _ => false
+      }
+    }else{
+      false
+    }
+  }
+
+  def isNotEmpty(pos:Int):Boolean = {
+    if (validPos(pos)){
+      gameMap(pos) match {
+        case None => false
+        case _ => true
+      }
+    }else{
+      false
+    }
+  }
+
+  def checkIfHit(targetPos:Int):Boolean={
+    if(targetPos==currentPos) return true
+    else if (targetPos==currentPos-1 && isNotEmpty(targetPos)) return true
+    else if (targetPos==currentPos-2 && isNotEmpty(targetPos) && isColumn(currentPos-1)) return true
+    else return false
+  }
+
+  def validPos(pos:Int) = if (pos < 0 || gameMap.size <= pos) false else true
   
   def act() {
     alive(BASE_PORT + currentPos)
@@ -83,7 +132,7 @@ class Pig extends Entity with Actor {
         }
         case EndGame(targetPos: Int) => {
           // XXX: fancier later (include columns)
-          if (currentPos == targetPos)
+          if (checkIfHit(targetPos))
             hit = true
         }
         case Trajectory(targetPos) => {
@@ -99,8 +148,8 @@ class Pig extends Entity with Actor {
           }
           
           // deal with ourselves
-          if (currentPos == targetPos && !gameOver)
-            move()
+          if (!gameOver)
+            moveIfRequired(targetPos)
         }
         case Status => {
           sender ! WasHit(hit)
