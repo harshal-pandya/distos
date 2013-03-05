@@ -233,8 +233,9 @@ class GameEngine(numPigs:Int) {
     
     nearest ! Trajectory(targetPos) 
     
-    // XXX: add some randomness
-    Thread.sleep(ROUND_TIME)
+    // random time between 500 and 2000 ms
+    val timeToTarget = rand.nextInt(1499)+500
+    Thread.sleep(timeToTarget)
 
     // End the round
     for (pig <- pigs)
