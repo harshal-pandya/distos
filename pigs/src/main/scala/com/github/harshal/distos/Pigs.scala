@@ -23,7 +23,7 @@ object Messages {
   case class Map(map: Seq[Option[Entity]])
   case class Trajectory(x: Int)
   case class Status
-  case class EndGame(x: Int)
+  case class EndGame
   
   // Pig => Game Engine
   case class Done
@@ -33,7 +33,7 @@ object Messages {
   
   // Pig => Pig
   case class BirdApproaching(position: Int, hopCount: Int)
-  case class TakeShelter(affectedPig: Pig)
+  case class TakeShelter(affectedPos: Int)
   
 }
 
@@ -63,31 +63,41 @@ class Pig extends Entity with Actor {
     else false
   }
   
-  def move() {
-    if (available(currentPos - 1))
+  def move():Boolean =  {
+    if (available(currentPos - 1)){
       currentPos -= 1
-    else if (available(currentPos + 1))
+      true
+    }
+    else if (available(currentPos + 1)){
       currentPos += 1
+      true
+    }
     else
-      ()
+      false
   }
 
   def move(pos:Int){
-    if (available(pos)) currentPos = pos
+    if (available(pos)) {
+      currentPos = pos
+    }
     else ()
   }
 
-  def moveIfRequired(targetPos:Int){
-    if(currentPos == targetPos){
-      move()
+  def moveIfRequired(targetPos:Int):Boolean = {
+    if (isMoveRequired(targetPos))
+      //if unable to move return true
+      !move(currentPos+1)
+    else false //if safe return false
+  }
+
+  def isMoveRequired(targetPos:Int):Boolean = {
+    if(currentPos-1 == targetPos){
+      true
     }
-    else if(currentPos-1 == targetPos && isNotEmpty(currentPos-1)){
-      move(currentPos+1)
+    else if(currentPos-2 == targetPos && isColumn(currentPos-1)){
+      true
     }
-    else if(currentPos-2 == targetPos && isNotEmpty(currentPos-2) && isColumn(currentPos-1)){
-      move(currentPos+1)
-    }
-    else ()
+    else false
   }
 
   def isColumn(pos:Int):Boolean = {
@@ -130,11 +140,7 @@ class Pig extends Entity with Actor {
           this.gameMap = map
           sender ! Done
         }
-        case EndGame(targetPos: Int) => {
-          // XXX: fancier later (include columns)
-          if (checkIfHit(targetPos))
-            hit = true
-        }
+        case EndGame => gameOver=true
         case Trajectory(targetPos) => {
           // send out the message
           left  ! BirdApproaching(targetPos, gameMap.size)
@@ -148,8 +154,25 @@ class Pig extends Entity with Actor {
           }
           
           // deal with ourselves
+          if (currentPos == targetPos && !gameOver){
+            val success = move()
+            if (!success){
+              left ! TakeShelter(targetPos,gameMap.size)
+              right ! TakeShelter(targetPos,gameMap.size)
+              hit = true
+            }
+          }
+          else if (currentPos == targetPos && gameOver) hit = true
+        }
+        case TakeShelter(targetPos,hopCount) => {
+          if (hopCount > 0){
+            left  ! TakeShelter(targetPos, hopCount - 1)
+            right ! TakeShelter(targetPos, hopCount - 1)
+          }
           if (!gameOver)
-            moveIfRequired(targetPos)
+            hit = moveIfRequired(targetPos)
+          else if (isMoveRequired(targetPos)) //game over but not yet updated state
+            hit = true
         }
         case Status => {
           sender ! WasHit(hit)
