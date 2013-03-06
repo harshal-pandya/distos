@@ -17,23 +17,23 @@ object Constants {
 object Messages {
   
   // Game Engine => ()
-  case class Start
+  case class Start()
 
   // Game Engine => Pig
   case class Map(map: Seq[Option[Entity]])
   case class Trajectory(x: Int)
-  case class Status
-  case class EndGame
+  case class Status()
+  case class EndGame()
   
   // Pig => Game Engine
-  case class Done
+  case class Done()
   case class WasHit(status: Boolean)
   
   type GameMap = Seq[Option[Entity]]
   
   // Pig => Pig
   case class BirdApproaching(position: Int, hopCount: Int)
-  case class TakeShelter(affectedPos: Int)
+  case class TakeShelter(position: Int, hopCount: Int)
   
 }
 
@@ -76,11 +76,12 @@ class Pig extends Entity with Actor {
       false
   }
 
-  def move(pos:Int){
+  def move(pos:Int):Boolean={
     if (available(pos)) {
       currentPos = pos
+      true
     }
-    else ()
+    else false
   }
 
   def moveIfRequired(targetPos:Int):Boolean = {
@@ -102,10 +103,7 @@ class Pig extends Entity with Actor {
 
   def isColumn(pos:Int):Boolean = {
     if (validPos(pos)){
-      gameMap(pos) match {
-        case Some(StoneColumn) => true
-        case _ => false
-      }
+      gameMap(pos).isInstanceOf[StoneColumn]
     }else{
       false
     }
@@ -262,7 +260,7 @@ class GameEngine(numPigs:Int) {
 
     // End the round
     for (pig <- pigs)
-      pig ! EndGame(targetPos)
+      pig ! EndGame
       
     println("---------------------")
     println(world.mkString("\n"))
