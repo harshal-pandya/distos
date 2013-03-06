@@ -1,7 +1,8 @@
 % CS677: Lab 1
 % Harshal Pandya and Brian Martin
 
-TODO: Introduction
+Our system represents a pig2pig network in which pigs collaborate to avoid
+impact with an adversarial bird.
 
 # Overall Design
 

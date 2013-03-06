@@ -29,7 +29,13 @@
             <artifactId>akka-actor</artifactId>
             <version>2.0.1</version>
         </dependency>
+        <dependency>
+          <groupId>junit</groupId>
+          <artifactId>junit</artifactId>
+          <version>4.10</version>
+        </dependency>
     </dependencies>
+
     <repositories>
         <repository>
             <id>TypesafeReleases</id>
@@ -38,6 +44,7 @@
             <layout>default</layout>
         </repository>
     </repositories>
+
     <build>
         <sourceDirectory>src/main/scala</sourceDirectory>
         <testSourceDirectory>src/test/scala</testSourceDirectory>

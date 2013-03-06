@@ -39,7 +39,7 @@ object Messages {
 
 abstract class Entity 
 
-class StoneColumn(pos:Int) extends Entity
+case class StoneColumn(pos:Int) extends Entity
 
 class Pig extends Entity with Actor {
   
@@ -138,7 +138,7 @@ class Pig extends Entity with Actor {
           this.gameMap = map
           sender ! Done
         }
-        case EndGame => gameOver=true
+        case EndGame => { gameOver = true; sender ! Done }
         case Trajectory(targetPos) => {
           // send out the message
           left  ! BirdApproaching(targetPos, gameMap.size)
@@ -186,11 +186,11 @@ class Pig extends Entity with Actor {
   }
 }
 
-class GameEngine(numPigs:Int) {
+class GameEngine(numPigs: Int, worldSizeRatio: Int = 2) {
   
   private val rand = new Random()
   
-  private val worldSize = 2*numPigs
+  private val worldSize = worldSizeRatio * numPigs
   
   def generateTopology: Seq[Pig] ={
     
@@ -207,7 +207,7 @@ class GameEngine(numPigs:Int) {
     pigs
   }
 
-  def generateMap: (Seq[Pig], Array[Option[Entity]]) = {
+  def generateMap(permutFn: Seq[Int] => Seq[Int] = rand.shuffle(_)): (Seq[Pig], Array[Option[Entity]]) = {
     
     val world = Array.fill[Option[Entity]](worldSize)(None)
     
@@ -215,7 +215,7 @@ class GameEngine(numPigs:Int) {
     val numColumns = rand.nextInt(numPigs)
     
     //Generate a random permutation of the array indices
-    val posVector: Seq[Int] = rand.shuffle(0 until worldSize)
+    val posVector: Seq[Int] = permutFn(0 until worldSize)
 
     val pigs: Seq[(Pig, Int)]  = generateTopology.zip(posVector.take(numPigs))
 
@@ -240,11 +240,9 @@ class GameEngine(numPigs:Int) {
     (for (p <- pigs) yield
       p -> ((p !? Status) match { case WasHit(hit) => hit })
     )
-  
-  def launch() {
+
+  def launch(targetPos: Int, pigs: Seq[Pig], world: Seq[Option[Entity]]): Seq[(Pig, Boolean)] = {
     
-    val (pigs, world) = generateMap
-    val targetPos = pickTarget
     val target = world(targetPos)
     val nearest: Pig = pigs.sortBy(_.currentPos).head
     
@@ -264,20 +262,37 @@ class GameEngine(numPigs:Int) {
 
     // End the round
     for (pig <- pigs)
-      pig ! EndGame
-    Thread.sleep(5000)
-    println("---------------------")
-    println(world.mkString("\n"))
-    println("---------------------")
-    println("target: " + targetPos)
-    println("---------------------")
-    println(statusAll(pigs).mkString("\n"))
+      pig !? EndGame
+      
+    Thread.sleep(1000)
+    
+    val statuses = statusAll(pigs)
     
     // End the round
     for (pig <- pigs)
       pig ! Exit
+      
+    statuses
 
   }
+  
+  def launch() {
+    val (pigs, world) = generateMap()
+    val target = pickTarget
+    stats(target, launch(target, pigs, world), world)
+  }
+  
+  def stats(target: Int, statuses: Seq[(Pig, Boolean)], world: Seq[Option[Entity]]) {
+      
+    println("---------------------")
+    println(world.mkString("\n"))
+    println("---------------------")
+    println("target: " + target)
+    println("---------------------")
+    println(statuses.mkString("\n"))
+    
+  }
+    
 }
 
 object Pigs extends App {
