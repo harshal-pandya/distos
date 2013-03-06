@@ -152,7 +152,11 @@ class Pig extends Entity with Actor {
           }
           
           // deal with ourselves
-          if (currentPos == targetPos && !gameOver){
+          if (targetPos==currentPos-1 && isColumn(currentPos-1) && !gameOver){
+            val success = move()
+            if (!success) hit = true
+          }
+          else if (currentPos == targetPos && !gameOver){
             val success = move()
             if (!success){
               left ! TakeShelter(targetPos,gameMap.size)
@@ -167,9 +171,9 @@ class Pig extends Entity with Actor {
             left  ! TakeShelter(targetPos, hopCount - 1)
             right ! TakeShelter(targetPos, hopCount - 1)
           }
-          if (!gameOver)
+          if (targetPos!=currentPos && !gameOver)
             hit = moveIfRequired(targetPos)
-          else if (isMoveRequired(targetPos)) //game over but not yet updated state
+          else if (targetPos!=currentPos && isMoveRequired(targetPos)) //game over but not yet updated state
             hit = true
         }
         case Status => {
@@ -261,7 +265,7 @@ class GameEngine(numPigs:Int) {
     // End the round
     for (pig <- pigs)
       pig ! EndGame
-      
+    Thread.sleep(5000)
     println("---------------------")
     println(world.mkString("\n"))
     println("---------------------")
