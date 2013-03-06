@@ -1,5 +1,4 @@
-A sample for the Typesafe Stack (http://typesafe.com/stack).
+TODO: 
 
-Akka 2.0 sample project using Scala and SBT.
-
-To run and test it use SBT invoke: 'sbt run'
+  1. Take shelter message from an affected pig.
+  1. Status messages need to travel through the network topology.
