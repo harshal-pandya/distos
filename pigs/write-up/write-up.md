@@ -76,3 +76,12 @@ We have included two scripts in the code directory:
      source, and produce a jar file.
   1. **``bin/run.sh``**: This will run a round of the game, starting several JVMs.
 
+\pagebreak
+
+# Test cases:
+
+![test1](figs/test1.pdf)
+![test2](figs/test2.pdf)
+![test3](figs/test3.pdf)
+![test4](figs/test4.pdf)
+![test5](figs/test5.pdf)
