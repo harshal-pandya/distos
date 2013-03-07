@@ -85,10 +85,13 @@ class Pig extends Entity with Actor {
   }
 
   def moveIfRequired(targetPos:Int):Boolean = {
-    if (isMoveRequired(targetPos))
+    if (isMoveRequired(targetPos)){
       //if unable to move return true
       !move(currentPos+1)
-    else false //if safe return false
+    }
+    else {
+      false
+    } //if safe return false
   }
 
   def isMoveRequired(targetPos:Int):Boolean = {
@@ -103,7 +106,7 @@ class Pig extends Entity with Actor {
 
   def isColumn(pos:Int):Boolean = {
     if (validPos(pos)){
-      gameMap(pos).isInstanceOf[StoneColumn]
+      gameMap(pos).isInstanceOf[Option[StoneColumn]]
     }else{
       false
     }
@@ -164,15 +167,18 @@ class Pig extends Entity with Actor {
               hit = true
             }
           }
-          else if (currentPos == targetPos && gameOver) hit = true
+          else if (currentPos == targetPos && gameOver) {
+            hit = true
+          }
         }
         case TakeShelter(targetPos,hopCount) => {
           if (hopCount > 0){
             left  ! TakeShelter(targetPos, hopCount - 1)
             right ! TakeShelter(targetPos, hopCount - 1)
           }
-          if (targetPos!=currentPos && !gameOver)
+          if (targetPos!=currentPos && !gameOver){
             hit = moveIfRequired(targetPos)
+          }
           else if (targetPos!=currentPos && isMoveRequired(targetPos)) //game over but not yet updated state
             hit = true
         }
@@ -292,7 +298,7 @@ class GameEngine(numPigs: Int, worldSizeRatio: Int = 2) {
     println(statuses.mkString("\n"))
     
   }
-    
+
 }
 
 object Pigs extends App {
