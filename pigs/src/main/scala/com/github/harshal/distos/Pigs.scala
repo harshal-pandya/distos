@@ -106,7 +106,10 @@ class Pig extends Entity with Actor {
 
   def isColumn(pos:Int):Boolean = {
     if (validPos(pos)){
-      gameMap(pos).isInstanceOf[Option[StoneColumn]]
+      gameMap(pos)match{
+        case Some(entity)=>entity.isInstanceOf[StoneColumn]
+        case None => false
+      }
     }else{
       false
     }
@@ -259,7 +262,7 @@ class GameEngine(numPigs: Int, worldSizeRatio: Int = 2) {
       pig !? Map(world)
       
     println(world.mkString("\n"))
-    
+
     nearest ! Trajectory(targetPos) 
     
     // random time between 500 and 2000 ms
