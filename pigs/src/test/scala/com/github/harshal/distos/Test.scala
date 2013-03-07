@@ -100,6 +100,7 @@ class PigsTest {
     
     pigs(0).currentPos = 0
     pigs(1).currentPos = 1
+    pigs(1).currentPos = 2
     
     val world = Seq(
         Some(pigs(0)),
@@ -130,6 +131,35 @@ class PigsTest {
     assert(statuses(2)._1.currentPos == 2) // assert the third pig moved from 2 -> 3
     // ..and not been killed
     assert(statuses(2)._2 == false) // assert the third pig was not killed
+    
+  }
+
+  @Test
+  def test5() = {
+    
+    val numPigs = 1
+    val ge = new GameEngine(numPigs, 3)
+    val pigs = ge.generateTopology
+    
+    pigs(0).currentPos = 1
+    
+    val world = Seq(
+        Some(StoneColumn(0)),
+        Some(pigs(0)),
+        None)
+    
+    val target = 0
+    
+    val statuses = ge.launch(target, pigs, world)
+    
+    ge.stats(target, statuses, world)
+    
+    // we only have one pigs
+    assert(statuses.size == 1) 
+    
+    // the first one should move 1 -> 2
+    assert(statuses.head._1.currentPos == 2) //moved
+    assert(statuses.head._2 == false)   // wasn't hit
     
   }
 
