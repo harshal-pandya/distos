@@ -5,13 +5,15 @@ import scala.actors.Actor._
 import scala.actors.remote._
 import scala.actors.remote.RemoteActor._
 import scala.util.Random
-
 import Constants._
 import Messages._
+import scala.actors.Futures._
 
 object Constants {
   val ROUND_TIME = 1000
-  val BASE_PORT  = 10000
+  var BASE_PORT  = 10000
+  
+  val COLUMN = -2
 }
 
 object Messages {
@@ -20,11 +22,13 @@ object Messages {
   case class Start()
 
   // Game Engine => Pig
-  case class Map(map: Seq[Option[AbstractActor]])
+  case class Map(map: Seq[Option[Int]])
   case class Trajectory(x: Int)
   case class Status()
   case class EndGame()
-  case class GetPosition
+  case class GetPosition()
+  case class GetPort()
+  case class Port(x: Int)
   case class Position(x: Int)
   case class SetPosition(x: Int)
   case class SetLeft(x: Int)
@@ -34,7 +38,7 @@ object Messages {
   case class Done()
   case class WasHit(status: Boolean)
   
-  type GameMap = Seq[Option[AbstractActor]]
+  type GameMap = Seq[Option[Int]]
   
   // Pig => Pig
   case class BirdApproaching(position: Int, hopCount: Int)
@@ -46,7 +50,7 @@ abstract class PigRef extends AbstractActor
 
 class StoneColumn(pos:Int) extends AbstractActor with Actor { def act() {} }
 
-class Pig(portIncr: Int) extends PigRef with Actor {
+class Pig(val port: Int) extends PigRef with Actor {
   
   override def toString() = "Pig(%d)" format currentPos
   
@@ -89,67 +93,37 @@ class Pig(portIncr: Int) extends PigRef with Actor {
     else false
   }
 
-  def moveIfRequired(targetPos:Int):Boolean = {
-    if (isMoveRequired(targetPos)){
-      //if unable to move return true
-      !move(currentPos+1)
-    }
-    else {
-      false
-    } //if safe return false
+  def moveIfRequired(targetPos: Int) = {
+    if (isMoveRequired(targetPos))
+      !move(currentPos+1) //if unable to move return true
+    else
+      false //if safe return false
   }
 
-  def isMoveRequired(targetPos:Int):Boolean = {
-    if(currentPos-1 == targetPos){
-      true
-    }
-    else if(currentPos-2 == targetPos && isColumn(currentPos-1)){
-      true
-    }
-    else false
-  }
+  def isMoveRequired(targetPos: Int) =
+    (currentPos-1 == targetPos) || 
+    (currentPos-2 == targetPos && isColumn(currentPos-1))
 
-  def isColumn(pos:Int):Boolean = {
-    if (validPos(pos)){
-      gameMap(pos)match{
-        case Some(entity)=>entity.isInstanceOf[StoneColumn]
-        case None => false
-      }
-    }else{
-      false
-    }
-  }
+  def isColumn(pos: Int)  = if (validPos(pos)) gameMap(pos) == COLUMN else false
+  def isNotEmpty(pos:Int) = if (validPos(pos)) gameMap(pos) != None else false
 
-  def isNotEmpty(pos:Int):Boolean = {
-    if (validPos(pos)){
-      gameMap(pos) match {
-        case None => false
-        case _ => true
-      }
-    }else{
-      false
-    }
-  }
+  def checkIfHit(targetPos: Int) =
+    (targetPos == currentPos) || 
+    (targetPos == currentPos - 1 && isNotEmpty(targetPos)) ||
+    (targetPos == currentPos - 2 && isNotEmpty(targetPos) && isColumn(currentPos - 1))
 
-  def checkIfHit(targetPos:Int):Boolean={
-    if(targetPos==currentPos) return true
-    else if (targetPos==currentPos-1 && isNotEmpty(targetPos)) return true
-    else if (targetPos==currentPos-2 && isNotEmpty(targetPos) && isColumn(currentPos-1)) return true
-    else return false
-  }
-
-  def validPos(pos:Int) = if (pos < 0 || gameMap.size <= pos) false else true
+  def validPos(pos:Int) = !(pos < 0 || gameMap.size <= pos)
   
   def act() {
-    alive(BASE_PORT + currentPos)
-    register(Symbol(BASE_PORT.toString), self)
+    alive(port)
+    register(Symbol(port.toString), self)
     loop {
       react {
         case Map(map) => { 
           this.gameMap = map
           sender ! Done
         }
-        case EndGame => { gameOver = true; sender ! Done }
+        case EndGame() => { gameOver = true; sender ! Done }
         case Trajectory(targetPos) => {
           // send out the message
           left  ! BirdApproaching(targetPos, gameMap.size)
@@ -190,22 +164,25 @@ class Pig(portIncr: Int) extends PigRef with Actor {
           else if (targetPos!=currentPos && isMoveRequired(targetPos)) //game over but not yet updated state
             hit = true
         }
-        case Status => {
+        case Status() => {
           sender ! WasHit(hit)
         }
-        case GetPosition => { sender ! Position(currentPos) }
+        case GetPort() => { sender ! Port(port) }
+        case GetPosition() => { sender ! Position(currentPos) }
         case SetPosition(x) => {
           currentPos = x
           hit = false
           sender ! Done
         }
-        case SetLeft(x) => {
-          left = select(Node("localhost", BASE_PORT + x), Symbol(x.toString))
+        case SetLeft(port) => {
+          left = select(Node("localhost", port), Symbol(port.toString))
+          sender ! Done()
         }
-        case SetRight(x) => {
-          right = select(Node("localhost", BASE_PORT + x), Symbol(x.toString))
+        case SetRight(port) => {
+          right = select(Node("localhost", port), Symbol(port.toString))
+          sender ! Done()
         }
-        case Exit => exit()
+        case Exit => { exit(); sender ! Done() }
         case m => throw new Error("Unknown message: " + m)
       }
     }
@@ -218,25 +195,39 @@ class GameEngine(numPigs: Int, worldSizeRatio: Int = 2) {
   
   private val worldSize = worldSizeRatio * numPigs
   
-  def generateTopology: Seq[AbstractActor] = {
+  def generateTopologyWithoutPorts: Seq[AbstractActor] = generateTopology.map(_._2)
+  def generateTopology: Seq[(Int, AbstractActor)] = {
     
-    val pigs: Seq[(Int, AbstractActor)] = (1 to numPigs).map(portOffset =>
-      portOffset -> select(Node("localhost", BASE_PORT + portOffset), Symbol(portOffset.toString)))
+    println("Gathering Pigs...")
+    
+    val pigs: Seq[(Int, AbstractActor)] = (1 to numPigs).map(_ + BASE_PORT).map(port => {
+      println("Looking up on port: " + port)
+      val p: AbstractActor = select(Node("localhost", port), Symbol(port.toString))
+      println("Checking alive: " + (p !? GetPosition()))
+      port -> p
+    })
+    
+    println("done gathering.")
+    
+    println("Can we communicate with the first pig?: " + (pigs.head._2 !? GetPosition()))
     
     for ((prev, curr) <- pigs.zip(pigs.drop(1))) {
       prev._2 !? SetRight(curr._1)
       curr._2 !? SetLeft (prev._1)
     }
+    println("done setting mid positions")
     
     pigs.head._2 ! SetLeft (pigs.last._1)
     pigs.last._2 ! SetRight(pigs.head._1)
     
-    pigs.map(_._2)
+    println("done setting end positions")
+    
+    pigs
   }
 
-  def generateMap(permutFn: Seq[Int] => Seq[Int] = rand.shuffle(_)): (Seq[AbstractActor], Array[Option[AbstractActor]]) = {
+  def generateMap(permutFn: Seq[Int] => Seq[Int] = rand.shuffle(_)): (Seq[AbstractActor], Array[Option[Int]]) = {
     
-    val world = Array.fill[Option[AbstractActor]](worldSize)(None)
+    val world = Array.fill[Option[Int]](worldSize)(None)
     
     //Generate a random number of columns bounded by the number of pigs
     val numColumns = rand.nextInt(numPigs)
@@ -244,19 +235,19 @@ class GameEngine(numPigs: Int, worldSizeRatio: Int = 2) {
     //Generate a random permutation of the array indices
     val posVector: Seq[Int] = permutFn(0 until worldSize)
 
-    val pigs: Seq[(AbstractActor, Int)]  = generateTopology.zip(posVector.take(numPigs))
+    val pigs: Seq[((Int, AbstractActor), Int)]  = generateTopology.zip(posVector.take(numPigs))
     
     val columnPos: Seq[Int] = posVector.takeRight(numColumns)
     
-    for ((pig, pos) <- pigs) {
+    for (((port, pig), pos) <- pigs) {
       pig !? SetPosition(pos)
-      world(pos) = Some(pig)
+      world(pos) = Some(port)
     }
-    
+
     for (pos <- columnPos) 
-      world(pos) = Some(new StoneColumn(pos))
+      world(pos) = Some(COLUMN)
       
-    (pigs.map(_._1), world)
+    (pigs.map(_._1._2), world)
   }
   
   def pickTarget = rand.nextInt(worldSize-1)
@@ -265,18 +256,18 @@ class GameEngine(numPigs: Int, worldSizeRatio: Int = 2) {
   
   def statusAll(pigs: Seq[AbstractActor]): Seq[(Int, Boolean)] =
     (for (p <- pigs) yield (
-      ((p !? GetPosition) match { case Position(x) => x; case _ => -1 }),
-      ((p !? Status) match { case WasHit(hit) => hit })
+      ((p !? GetPosition()) match { case Position(x) => x; case _ => -1 }),
+      ((p !? Status()) match { case WasHit(hit) => hit })
     ))
 
   def launch(
       targetPos: Int,
       pigs: Seq[AbstractActor],
-      world: Seq[Option[AbstractActor]]): Seq[(Int, Boolean)] = {
+      world: Seq[Option[Int]]): Seq[(Int, Boolean)] = {
     
     val target = world(targetPos)
     val nearest = (pigs
-       .sortBy(p => (p !? GetPosition) match { 
+       .sortBy(p => (p !? GetPosition()) match { 
          case Position(x) => x;
          case _ => -1 }
        ).head)
@@ -288,22 +279,23 @@ class GameEngine(numPigs: Int, worldSizeRatio: Int = 2) {
 
     nearest ! Trajectory(targetPos) 
     
-    // random time between 500 and 2000 ms
-    val timeToTarget = rand.nextInt(1499)+500
-    Thread.sleep(timeToTarget)
+    // random time between 100 and 1000 ms
+    //val timeToTarget = rand.nextInt(450) + 550
+    Thread.sleep(500) //timeToTarget)
 
     // End the round
     for (pig <- pigs)
-      pig !? EndGame
+      pig !? EndGame()
       
     Thread.sleep(1000)
     
     val statuses = statusAll(pigs)
     
     // End the round
+    // XXX: Should this be async
     for (pig <- pigs)
-      pig ! Exit
-      
+      pig !? Exit
+ 
     statuses
 
   }
@@ -314,7 +306,7 @@ class GameEngine(numPigs: Int, worldSizeRatio: Int = 2) {
     stats(target, launch(target, pigs, world), world)
   }
   
-  def stats(target: Int, statuses: Seq[(Int, Boolean)], world: Seq[Option[AbstractActor]]) {
+  def stats(target: Int, statuses: Seq[(Int, Boolean)], world: Seq[Option[Int]]) {
       
     println("---------------------")
     println(world.mkString("\n"))
@@ -329,16 +321,28 @@ class GameEngine(numPigs: Int, worldSizeRatio: Int = 2) {
 
 object Game extends App {
   
+  RemoteActor.classLoader = getClass().getClassLoader()
+  
   val ge = new GameEngine(4)
   ge.launch()
   
 }
 
-object Pigs extends App {
-  val numPigs = args(0).toInt
-  for (portOffset <- 1 to numPigs) {
-    println("Starting pig on port: %d" format (BASE_PORT + portOffset))
-    new Pig(portOffset).start()
+object Pigs {
+
+  RemoteActor.classLoader = getClass().getClassLoader()
+  
+  def startPigs(numPigs: Int): Seq[Int] =
+    (for (port <- (1 to numPigs).map(_ + BASE_PORT)) yield {
+      println("Starting pig on port: " + port)
+      new Pig(port).start()
+      port
+    }).toSeq
+
+  def main(args: Array[String]): Unit = {
+    val numPigs = args(0).toInt
+    startPigs(numPigs)
   }
+  
 }
 
