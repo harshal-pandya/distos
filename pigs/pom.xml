@@ -79,12 +79,22 @@
                     <launchers>
                         <launcher>
                             <id>stats</id>
+                            <mainClass>com.github.harshal.distos.Game</mainClass>
+                            <args>
+                                <arg>${basedir}</arg>
+                            </args>
+                            <jvmArgs>
+                                <jvmArg>-Xmx1g</jvmArg>
+                            </jvmArgs>
+                        </launcher>
+                        <launcher>
+                            <id>pigs</id>
                             <mainClass>com.github.harshal.distos.Pigs</mainClass>
                             <args>
                                 <arg>${basedir}</arg>
                             </args>
                             <jvmArgs>
-                                <jvmArg>-Xmx50g</jvmArg>
+                                <jvmArg>-Xmx1g</jvmArg>
                             </jvmArgs>
                         </launcher>
                     </launchers>

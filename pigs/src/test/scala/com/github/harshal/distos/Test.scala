@@ -22,6 +22,8 @@ class PigsTest {
     
   }
   
+  def position(pig: AbstractActor): Int = { (pig !? GetPosition) match { case Position(x) => x; case _ => -1 }}
+  
   @Test
   def test2() = {
     
@@ -29,8 +31,8 @@ class PigsTest {
     val ge = new GameEngine(numPigs, 2)
     val pigs = ge.generateTopology
     
-    pigs(0).currentPos = 0
-    pigs(1).currentPos = 2
+    pigs(0) !? SetPosition(0)
+    pigs(1) !? SetPosition(2)
     
     val world = Seq(
         Some(pigs(0)),
@@ -51,7 +53,7 @@ class PigsTest {
     assert(statuses.head._2)   // assert the first pig was hit
     
     // the second one should have moved
-    assert(statuses(1)._1.currentPos == 3) // assert the second pig moved from 3 -> 2
+    assert(position(statuses(1)._1) == 3) // assert the second pig moved from 3 -> 2
     assert(statuses(1)._2 == false) // assert the second pig was not killed
     
   }
@@ -63,8 +65,8 @@ class PigsTest {
     val ge = new GameEngine(numPigs, 2)
     val pigs = ge.generateTopology
     
-    pigs(0).currentPos = 0
-    pigs(1).currentPos = 1
+    pigs(0) !? SetPosition(0)
+    pigs(1) !? SetPosition(1)
     
     val world = Seq(
         Some(pigs(0)),
@@ -85,7 +87,7 @@ class PigsTest {
     assert(statuses.head._2)   // assert the first pig was hit
     
     // the second one should have moved
-    assert(statuses(1)._1.currentPos == 2) // assert the second pig moved from 1 -> 2
+    assert(position(statuses(1)._1) == 2) // assert the second pig moved from 1 -> 2
     // ..and not been killed
     assert(statuses(1)._2 == false) // assert the second pig was not killed
     
@@ -98,9 +100,9 @@ class PigsTest {
     val ge = new GameEngine(numPigs, 2)
     val pigs = ge.generateTopology
     
-    pigs(0).currentPos = 0
-    pigs(1).currentPos = 1
-    pigs(1).currentPos = 2
+    pigs(0) !? SetPosition(0)
+    pigs(1) !? SetPosition(1)
+    pigs(2) !? SetPosition(2)
     
     val world = Seq(
         Some(pigs(0)),
@@ -120,15 +122,15 @@ class PigsTest {
     assert(statuses.size == 3) 
     
     // the first one was trapped by the second pig
-    assert(statuses.head._1.currentPos == 0)   // assert the first pig didn't move
+    assert(position(statuses.head._1) == 0)   // assert the first pig didn't move
     assert(statuses.head._2)   // assert the first pig was hit
     
     // the second one was trapped by the third pig
-    assert(statuses(1)._1.currentPos == 1)   // assert the second pig didn't move
+    assert(position(statuses(1)._1) == 1)   // assert the second pig didn't move
     assert(statuses(1)._2)   // assert the second pig was hit
     
     // the third one should have moved
-    assert(statuses(2)._1.currentPos == 2) // assert the third pig moved from 2 -> 3
+    assert(position(statuses(2)._1) == 2) // assert the third pig moved from 2 -> 3
     // ..and not been killed
     assert(statuses(2)._2 == false) // assert the third pig was not killed
     
@@ -141,7 +143,7 @@ class PigsTest {
     val ge = new GameEngine(numPigs, 3)
     val pigs = ge.generateTopology
     
-    pigs(0).currentPos = 1
+    pigs(0) !? SetPosition(1)
     
     val world = Seq(
         Some(StoneColumn(0)),
@@ -154,11 +156,11 @@ class PigsTest {
     
     ge.stats(target, statuses, world)
     
-    // we only have one pigs
+    // we only have one pig
     assert(statuses.size == 1) 
     
     // the first one should move 1 -> 2
-    assert(statuses.head._1.currentPos == 2) //moved
+    assert(position(statuses.head._1) == 2) //moved
     assert(statuses.head._2 == false)   // wasn't hit
     
   }

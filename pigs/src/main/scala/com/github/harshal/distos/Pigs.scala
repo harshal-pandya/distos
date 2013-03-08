@@ -20,16 +20,21 @@ object Messages {
   case class Start()
 
   // Game Engine => Pig
-  case class Map(map: Seq[Option[Entity]])
+  case class Map(map: Seq[Option[AbstractActor]])
   case class Trajectory(x: Int)
   case class Status()
   case class EndGame()
+  case class GetPosition
+  case class Position(x: Int)
+  case class SetPosition(x: Int)
+  case class SetLeft(x: Int)
+  case class SetRight(x: Int)
   
   // Pig => Game Engine
   case class Done()
   case class WasHit(status: Boolean)
   
-  type GameMap = Seq[Option[Entity]]
+  type GameMap = Seq[Option[AbstractActor]]
   
   // Pig => Pig
   case class BirdApproaching(position: Int, hopCount: Int)
@@ -37,16 +42,16 @@ object Messages {
   
 }
 
-abstract class Entity 
+abstract class PigRef extends AbstractActor
 
-case class StoneColumn(pos:Int) extends Entity
+class StoneColumn(pos:Int) extends AbstractActor with Actor { def act() {} }
 
-class Pig extends Entity with Actor {
+class Pig(portIncr: Int) extends PigRef with Actor {
   
   override def toString() = "Pig(%d)" format currentPos
   
-  var left:Pig = null
-  var right:Pig = null
+  var left:  AbstractActor = null
+  var right: AbstractActor = null
   var currentPos:Int = -1
   var gameOver = false
   var hit = false
@@ -137,7 +142,7 @@ class Pig extends Entity with Actor {
   
   def act() {
     alive(BASE_PORT + currentPos)
-    register(Symbol(currentPos.toString), self)
+    register(Symbol(BASE_PORT.toString), self)
     loop {
       react {
         case Map(map) => { 
@@ -188,6 +193,18 @@ class Pig extends Entity with Actor {
         case Status => {
           sender ! WasHit(hit)
         }
+        case GetPosition => { sender ! Position(currentPos) }
+        case SetPosition(x) => {
+          currentPos = x
+          hit = false
+          sender ! Done
+        }
+        case SetLeft(x) => {
+          left = select(Node("localhost", BASE_PORT + x), Symbol(x.toString))
+        }
+        case SetRight(x) => {
+          right = select(Node("localhost", BASE_PORT + x), Symbol(x.toString))
+        }
         case Exit => exit()
         case m => throw new Error("Unknown message: " + m)
       }
@@ -201,24 +218,25 @@ class GameEngine(numPigs: Int, worldSizeRatio: Int = 2) {
   
   private val worldSize = worldSizeRatio * numPigs
   
-  def generateTopology: Seq[Pig] ={
+  def generateTopology: Seq[AbstractActor] = {
     
-    val pigs = (1 to numPigs).map(_ => new Pig)
+    val pigs: Seq[(Int, AbstractActor)] = (1 to numPigs).map(portOffset =>
+      portOffset -> select(Node("localhost", BASE_PORT + portOffset), Symbol(portOffset.toString)))
     
     for ((prev, curr) <- pigs.zip(pigs.drop(1))) {
-      prev.right = curr
-      curr.left  = prev
+      prev._2 !? SetRight(curr._1)
+      curr._2 !? SetLeft (prev._1)
     }
     
-    pigs.head.left  = pigs.last
-    pigs.last.right = pigs.head
+    pigs.head._2 ! SetLeft (pigs.last._1)
+    pigs.last._2 ! SetRight(pigs.head._1)
     
-    pigs
+    pigs.map(_._2)
   }
 
-  def generateMap(permutFn: Seq[Int] => Seq[Int] = rand.shuffle(_)): (Seq[Pig], Array[Option[Entity]]) = {
+  def generateMap(permutFn: Seq[Int] => Seq[Int] = rand.shuffle(_)): (Seq[AbstractActor], Array[Option[AbstractActor]]) = {
     
-    val world = Array.fill[Option[Entity]](worldSize)(None)
+    val world = Array.fill[Option[AbstractActor]](worldSize)(None)
     
     //Generate a random number of columns bounded by the number of pigs
     val numColumns = rand.nextInt(numPigs)
@@ -226,12 +244,12 @@ class GameEngine(numPigs: Int, worldSizeRatio: Int = 2) {
     //Generate a random permutation of the array indices
     val posVector: Seq[Int] = permutFn(0 until worldSize)
 
-    val pigs: Seq[(Pig, Int)]  = generateTopology.zip(posVector.take(numPigs))
-
+    val pigs: Seq[(AbstractActor, Int)]  = generateTopology.zip(posVector.take(numPigs))
+    
     val columnPos: Seq[Int] = posVector.takeRight(numColumns)
     
     for ((pig, pos) <- pigs) {
-      pig.currentPos = pos
+      pig !? SetPosition(pos)
       world(pos) = Some(pig)
     }
     
@@ -245,18 +263,23 @@ class GameEngine(numPigs: Int, worldSizeRatio: Int = 2) {
   
   import Messages._
   
-  def statusAll(pigs: Seq[Pig]): Seq[(Pig, Boolean)] =
-    (for (p <- pigs) yield
-      p -> ((p !? Status) match { case WasHit(hit) => hit })
-    )
+  def statusAll(pigs: Seq[AbstractActor]): Seq[(Int, Boolean)] =
+    (for (p <- pigs) yield (
+      ((p !? GetPosition) match { case Position(x) => x; case _ => -1 }),
+      ((p !? Status) match { case WasHit(hit) => hit })
+    ))
 
-  def launch(targetPos: Int, pigs: Seq[Pig], world: Seq[Option[Entity]]): Seq[(Pig, Boolean)] = {
+  def launch(
+      targetPos: Int,
+      pigs: Seq[AbstractActor],
+      world: Seq[Option[AbstractActor]]): Seq[(Int, Boolean)] = {
     
     val target = world(targetPos)
-    val nearest: Pig = pigs.sortBy(_.currentPos).head
-    
-    for (pig <- pigs)
-      pig.start()
+    val nearest = (pigs
+       .sortBy(p => (p !? GetPosition) match { 
+         case Position(x) => x;
+         case _ => -1 }
+       ).head)
       
     for (pig <- pigs)
       pig !? Map(world)
@@ -291,7 +314,7 @@ class GameEngine(numPigs: Int, worldSizeRatio: Int = 2) {
     stats(target, launch(target, pigs, world), world)
   }
   
-  def stats(target: Int, statuses: Seq[(Pig, Boolean)], world: Seq[Option[Entity]]) {
+  def stats(target: Int, statuses: Seq[(Int, Boolean)], world: Seq[Option[AbstractActor]]) {
       
     println("---------------------")
     println(world.mkString("\n"))
@@ -304,9 +327,18 @@ class GameEngine(numPigs: Int, worldSizeRatio: Int = 2) {
 
 }
 
-object Pigs extends App {
+object Game extends App {
   
   val ge = new GameEngine(4)
   ge.launch()
   
 }
+
+object Pigs extends App {
+  val numPigs = args(0).toInt
+  for (portOffset <- 1 to numPigs) {
+    println("Starting pig on port: %d" format (BASE_PORT + portOffset))
+    new Pig(portOffset).start()
+  }
+}
+
