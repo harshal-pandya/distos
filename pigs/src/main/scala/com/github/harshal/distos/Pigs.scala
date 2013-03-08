@@ -182,7 +182,7 @@ class Pig(val port: Int) extends PigRef with Actor {
           right = select(Node("localhost", port), Symbol(port.toString))
           sender ! Done()
         }
-        case Exit => { exit(); sender ! Done() }
+        case Exit => {  sender ! Done(); exit() }
         case m => throw new Error("Unknown message: " + m)
       }
     }
