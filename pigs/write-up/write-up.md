@@ -40,27 +40,48 @@ In our system the *game engine* has several roles:
 Each pig functions as an actor which can recieve and act on several message
 types, derived from the original specification:
 
-  - ``Trajectory(position: Int)``
-  - ``BirdApproaching(targetPosition: Int, hopCount: Int)``
-  - TODO: ``Status(pigId: Int)``
-  - TODO: ``EndGame``
-  - TODO: ``TakeShelter(??)``
+  - ``Trajectory(position: Int)`` notifies the nearest pig about the birds trajectory.
+  - ``BirdApproaching(targetPosition: Int, hopCount: Int)`` used by the nearest bird to initiate a round of notifications the pig being hit.
+  - ``TakeShelter(position: Int, hopCount: Int)`` used by the pig directly hit to notify other pigs to take shelter if they are a part of the collateral damage.
+  - ``Status(pigId: Int)`` used to query each pig about its safety.
+  - ``EndGame`` used by the Master to end the round.
 
 ## Launching a bird
 
-A bird is launched is 
-
+A bird launch is described by the time the master picks a random target and notifies the 
+nearest pig about the trajectory. It then picks a random time to target before sending an 
+end game message thus signaling that the bird has landed.
 
 # Description of "how it works"
 
-# Design Decisions / Trade-offs
+We use the Actor framework to enable communication between machines. 
+The Actor model is a mathematical model of concurrent computation that treats "actors" as 
+the universal primitives of concurrent digital computation: in response to a message that 
+it receives, an actor can make local decisions, create more actors, send more messages, 
+and determine how to respond to the next message received.
+Each pig is an Actor in our system which is essentially a stub on a remote jvm. The actors
+exchange messages among themselves and take actions in response according to the game logic.
+On receiving the BirdApproaching message, the actor checks if it is directly impacted by 
+the approaching bird, if so it tries to move. If it can't move since it's blocked, it sends
+out a TakeShelter message to the other actors. 
+On receiving the TakeShelter message the actors check to see if they are close to a pig or
+column being hit and move if required and is possible.
+After the master sends the EndGame message signaling the bird landing, the pigs update their 
+states to know whether they were hit or not using the messages still being flooded. 
+On receiving the status query, each pig responds with a wasHit message.
 
+# Design Decisions / Trade-offs
+The pigs form a bidirectional ring topology and messages are passed both ways. The pigs don't 
+maintain any state apart from their current locations in the world. If they are being affected
+they change locations and all the other messages get ignored once they are in a safe spot. 
+We do not maintain a shared map data structure and hence the map is not updated when the pigs 
+move. This however saves the effort of maintaing a synchronous thread-safe data structure that
+lives on the master and adds extra messages to the system.    
 
 # Possible Improvements
-
-    [and extensions]
-
-   - Sketch how these would be done.
+A more complex topology instead of a simple bidirectional ring would be a good experiment.
+In terms of the game logic, we could use a 2 dimensional world. Also we could make pigs move
+make space for pigs being affected and have the effect of hits cascade beyond 2 positions. 
 
 # How to run the program
 
