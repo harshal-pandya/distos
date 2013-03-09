@@ -103,3 +103,69 @@ We have included two scripts in the code directory:
 ![test3](figs/test3.pdf)
 ![test4](figs/test4.pdf)
 ![test5](figs/test5.pdf)
+
+#Sample Output:
+
+When running the pigs:
+
+```
+Starting pig on port: 10001
+Starting pig on port: 10002
+Starting pig on port: 10003
+Starting pig on port: 10004
+Starting pig on port: 10005
+Starting pig on port: 10006
+Starting pig on port: 10007
+Starting pig on port: 10008
+Starting pig on port: 10009
+Starting pig on port: 10010
+```
+
+When running the game:
+
+```
+Gathering Pigs...
+Looking up on port: 10001
+Checking alive: Position(-1)
+Looking up on port: 10002
+Checking alive: Position(-1)
+Looking up on port: 10003
+Checking alive: Position(-1)
+Looking up on port: 10004
+Checking alive: Position(-1)
+Looking up on port: 10005
+Checking alive: Position(-1)
+Looking up on port: 10006
+Checking alive: Position(-1)
+Looking up on port: 10007
+Checking alive: Position(-1)
+Looking up on port: 10008
+Checking alive: Position(-1)
+Looking up on port: 10009
+Checking alive: Position(-1)
+Looking up on port: 10010
+Checking alive: Position(-1)
+done gathering.
+Can we communicate with the first pig?: Position(-1)
+done setting mid positions
+done setting end positions
+
+  -----------------------
+  |  Initial locations  |
+  -----------------------
+
+       |                 |     |                 |        | 
+ @  _  |  _  _  @  @  @  |  @  |  @  _  @  @  @  |  @  _  | 
+------------------------------------------------------------
+Time to target: 589
+
+  -----------------------
+  |  Final locations    |
+  -----------------------
+
+
+       |                 |     |                 |        | 
+ @  _  |  _  _  @  @  @  |  @  |  @  _  @  @  @  |  @  _  | 
+------------------------------------------------------------
+                           XXX                                    <- TARGET
+```
