@@ -78,8 +78,11 @@ class PigsTest {
     assert(statuses.head._2)   // assert the first pig was hit
     
     // the second one should have moved
-    assert(statuses(1)._1 == 3) // assert the second pig moved from 3 -> 2
+    assert(statuses(1)._1 == 3, "incorrect: " + statuses(1)._1) // assert the second pig moved from 3 -> 2
     assert(statuses(1)._2 == false) // assert the second pig was not killed
+    
+    for (pig <- pigs)
+      pig !? Exit
     
   }
   
@@ -117,6 +120,8 @@ class PigsTest {
     // ..and not been killed
     assert(statuses(1)._2 == false) // assert the second pig was not killed
     
+    for (pig <- pigs)
+      pig !? Exit
   }
 
   @Test
@@ -161,6 +166,8 @@ class PigsTest {
     // ..and not been killed
     assert(statuses(2)._2 == false) // assert the third pig was not killed
     
+    for (pig <- pigs)
+      pig !? Exit
   }
 
   @Test
@@ -188,9 +195,11 @@ class PigsTest {
     assert(statuses.size == 1) 
     
     // the first one should move 1 -> 2
-    assert(statuses.head._1 == 2) //moved
+    assert(statuses.head._1 == 2, "incorrect: " + statuses.head._1) //moved
     assert(statuses.head._2 == false)   // wasn't hit
     
+    for (pig <- pigs)
+      pig !? Exit
   }
 
 }

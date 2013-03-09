@@ -1,13 +1,9 @@
 % CS677: Lab 1
 % Harshal Pandya and Brian Martin
 
-Our system represents a pig2pig network in which pigs collaborate to avoid
-impact with an adversarial bird.
+Our system implements the provided spec: a pig2pig network in which pigs
+collaborate to avoid impact with an adversarial bird.
 
-# Overall Design
-
-The overall design uses an actor-based formalism.
-TODO: more here
 
 ## Game Map
 
@@ -52,12 +48,13 @@ types, derived from the original specification:
 
 ## Launching a bird
 
-
+A bird is launched is 
 
 
 # Description of "how it works"
 
 # Design Decisions / Trade-offs
+
 
 # Possible Improvements
 
@@ -72,9 +69,9 @@ dependencies and generate a jar file of compiled code.
 
 We have included two scripts in the code directory:
 
-  1. **``bin/install.sh``**: This will retrieve all the dependencies, compile the
-     source, and produce a jar file.
-  1. **``bin/run.sh``**: This will run a round of the game, starting several JVMs.
+  1. **``bin/install.sh``**: This will retrieve all the dependencies, compile the source.
+  1. **``bin/run.sh``**: This will run several rounds of the game, running
+     through all of the test cases (shown on the following page).
 
 \pagebreak
 

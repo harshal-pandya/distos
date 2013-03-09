@@ -104,7 +104,7 @@ class Pig(val port: Int) extends PigRef with Actor {
     (currentPos-1 == targetPos) || 
     (currentPos-2 == targetPos && isColumn(currentPos-1))
 
-  def isColumn(pos: Int)  = if (validPos(pos)) gameMap(pos) == COLUMN else false
+  def isColumn(pos: Int)  = if (validPos(pos)) gameMap(pos) == Some(COLUMN) else false
   def isNotEmpty(pos:Int) = if (validPos(pos)) gameMap(pos) != None else false
 
   def checkIfHit(targetPos: Int) =
