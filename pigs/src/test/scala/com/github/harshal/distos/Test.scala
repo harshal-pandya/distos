@@ -192,5 +192,41 @@ class PigsTest {
     assert(statuses.head._2 == false)   // wasn't hit
     
   }
+  
+  @Test
+  def testPerf() = {
+    
+    val r = new scala.util.Random()
+    val numPigs = 10
+    val pigToWorldRatio = 3
+    val numIterations = 10
+    
+    var totalPigs = 0
+    var deadPigs  = 0
+    
+    for (i <- 1 to 10) {
+      
+      val target = r.nextInt(numPigs * pigToWorldRatio - 1)
+    
+      val pigPorts = startPigs(numPigs)
+      val ge = new GameEngine(numPigs, pigToWorldRatio)
+      val pigs = ge.generateTopologyWithoutPorts
+      
+      pigs(0) !? SetPosition(1)
+      
+      val world = Seq(
+          Some(COLUMN),
+          Some(pigPorts(0)),
+          None)
+      
+      
+      val statuses = ge.launch(target, pigs, world)
+      
+      totalPigs += statuses.size
+      deadPigs  += statuses.filterNot(_._2).size
+      
+    }
+    
+  }
 
 }

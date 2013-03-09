@@ -74,9 +74,14 @@ On receiving the status query, each pig responds with a wasHit message.
 The pigs form a bidirectional ring topology and messages are passed both ways. The pigs don't 
 maintain any state apart from their current locations in the world. If they are being affected
 they change locations and all the other messages get ignored once they are in a safe spot. 
+
+We use hopcounts to limit the the lifetime of messages propagating through the
+system. Without a hopcount messages would flow from pig to pig forever.
+
 We do not maintain a shared map data structure and hence the map is not updated when the pigs 
 move. This however saves the effort of maintaing a synchronous thread-safe data structure that
 lives on the master and adds extra messages to the system.    
+
 
 # Possible Improvements
 A more complex topology instead of a simple bidirectional ring would be a good experiment.
