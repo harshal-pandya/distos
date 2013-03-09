@@ -76,7 +76,6 @@
                 <configuration>
                     <recompileMode>incremental</recompileMode>
                     <scalaVersion>${scala.version}</scalaVersion>
-
                     <args>
                         <arg>-target:jvm-1.5</arg>
                         <arg>-deprecation</arg>
@@ -86,7 +85,8 @@
                             <id>stats</id>
                             <mainClass>com.github.harshal.distos.Game</mainClass>
                             <args>
-                                <arg>${basedir}</arg>
+                                <arg>10</arg>
+                                <arg>2</arg>
                             </args>
                             <jvmArgs>
                                 <jvmArg>-Xmx1g</jvmArg>
@@ -96,7 +96,7 @@
                             <id>pigs</id>
                             <mainClass>com.github.harshal.distos.Pigs</mainClass>
                             <args>
-                                <arg>${basedir}</arg>
+                                <arg>10</arg>
                             </args>
                             <jvmArgs>
                                 <jvmArg>-Xmx1g</jvmArg>

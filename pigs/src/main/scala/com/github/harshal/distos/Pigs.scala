@@ -189,7 +189,7 @@ class Pig(val port: Int) extends PigRef with Actor {
   }
 }
 
-class GameEngine(numPigs: Int, worldSizeRatio: Int = 2) {
+class GameEngine(numPigs: Int, worldSizeRatio: Int) {
   
   private val rand = new Random()
   
@@ -263,7 +263,8 @@ class GameEngine(numPigs: Int, worldSizeRatio: Int = 2) {
   def launch(
       targetPos: Int,
       pigs: Seq[AbstractActor],
-      world: Seq[Option[Int]]): Seq[(Int, Boolean)] = {
+      world: Seq[Option[Int]],
+      exit: Boolean = true): Seq[(Int, Boolean)] = {
     
     val target = world(targetPos)
     val nearest = (pigs
@@ -275,13 +276,19 @@ class GameEngine(numPigs: Int, worldSizeRatio: Int = 2) {
     for (pig <- pigs)
       pig !? Map(world)
       
-    println(world.mkString("\n"))
+    println("""
+        |  -----------------------
+        |  |  Initial locations  |
+        |  -----------------------
+        |""".stripMargin)
+    prettyPrintMap(world)
 
     nearest ! Trajectory(targetPos) 
     
     // random time between 100 and 1000 ms
-    //val timeToTarget = rand.nextInt(450) + 550
-    Thread.sleep(500) //timeToTarget)
+    val timeToTarget = rand.nextInt(450) + 550
+    println("Time to target: " + timeToTarget)
+    Thread.sleep(timeToTarget)
 
     // End the round
     for (pig <- pigs)
@@ -291,10 +298,9 @@ class GameEngine(numPigs: Int, worldSizeRatio: Int = 2) {
     
     val statuses = statusAll(pigs)
     
-    // End the round
-    // XXX: Should this be async
-    for (pig <- pigs)
-      pig !? Exit
+    if (exit)
+      for (pig <- pigs)
+        pig !? Exit
  
     statuses
 
@@ -303,7 +309,7 @@ class GameEngine(numPigs: Int, worldSizeRatio: Int = 2) {
   def launch() {
     val (pigs, world) = generateMap()
     val target = pickTarget
-    stats(target, launch(target, pigs, world), world)
+    prettyPrint(target, launch(target, pigs, world, exit = false), world)
   }
   
   def stats(target: Int, statuses: Seq[(Int, Boolean)], world: Seq[Option[Int]]) {
@@ -316,6 +322,49 @@ class GameEngine(numPigs: Int, worldSizeRatio: Int = 2) {
     println(statuses.mkString("\n"))
     
   }
+  
+  def prettyPrintMap(world: Seq[Option[Int]]) {
+      
+    println(world.map { e => e match {
+      case Some(x) => if (x == COLUMN) " | " else "   "
+      case None => "   "
+    }}.mkString(""))
+    
+    println(world.map { e => e match {
+      case Some(x) => if (x == COLUMN) " | " else " @ "
+      case None => " _ "
+    }}.mkString(""))
+    println("-" * world.size * 3)
+  }
+  
+  def prettyPrint(target: Int, statuses: Seq[(Int, Boolean)], world: Seq[Option[Int]]) {
+    
+    println("""
+        |  -----------------------
+        |  |  Final locations    |
+        |  -----------------------
+        |
+        |""".stripMargin)
+    prettyPrintMap(world)
+      
+    println((" " * 3 * target)  + "XXX" + (" " * 3 * (world.size - target)) + "   <- TARGET")
+    
+//    val newMap = world.map(x => x match { 
+//      case Some(COLUMN) => COLUMN
+//      case Some(x)      => None
+//      case None         => None
+//    }).toArray
+    
+    //val undead = statuses.filterNot(_._2).map(_._1)
+    
+    //undead.foreach(x => newMap(x) = Some(1))
+    
+    //println((0 until newMap.size).map(i => if (!undead.contains(i)) " D " else "   ").mkString("") + "   <- DEAD?")
+    
+//    println(statuses.mkString("\n"))
+//    println("target: " + target)
+    
+  }
 
 }
 
@@ -323,9 +372,10 @@ object Game extends App {
   
   RemoteActor.classLoader = getClass().getClassLoader()
   
-  val ge = new GameEngine(4)
+  val ge = new GameEngine(args(0).toInt, args(1).toInt)
   ge.launch()
   
+  System.exit(0)
 }
 
 object Pigs {
