@@ -89,7 +89,7 @@
                             <id>stats</id>
                             <mainClass>com.github.harshal.distos.PigsRunner</mainClass>
                             <args>
-                                <arg>4</arg>
+                                <arg>6</arg>
                             </args>
                             <jvmArgs>
                                 <jvmArg>-Xmx1g</jvmArg>

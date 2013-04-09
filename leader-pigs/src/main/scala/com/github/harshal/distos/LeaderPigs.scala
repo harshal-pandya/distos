@@ -10,6 +10,7 @@ import Util._
 import com.codahale.logula.Logging
 import org.apache.log4j.Level
 import scala.collection.mutable.LinkedHashMap
+import java.util.UUID
 
 // Various, general utilities and conveniences used in the code.
 object Util {
@@ -24,13 +25,10 @@ object Util {
   def !!! = throw new Error("Not yet implemnted!")
   
   val rand = new Random()
-
+  
   // Convenience functions
   class AnyOps[X](x: X) {
     def withEffect (f: X => Unit) : X = { f(x); x }
-    def into[Y]    (f: X => Y)    : Y = f(x)
-    def withFinally[Y](close: X => Unit)(f: X => Y): Y = try f(x) finally close(x)
-    def mapNonNull [Y >: Null] (f: X => Y) : Y = if (x != null) f(x) else null
   }
   implicit def AnyOps[X](x: X) = new AnyOps(x)
 
@@ -40,11 +38,6 @@ object Util {
     log.console.enabled = true
   }
 }
-
-
-
-// A stone column is simply a position on the map.
-case class StoneColumn(position: Int)
 
 //
 // An `AbstractPig` is an actor with a port and
@@ -118,16 +111,19 @@ object RingBasedElectionMessages {
   
   // An Election message has an id and the process id's
   // of all the nodes it has been passed through.
+  // It is also used to initiate an Election.
   case class Election(procIds: Seq[Int] = Seq.empty) {
-    val id  = rand.nextInt;
+    val id  = UUID.randomUUID().toString.take(8)
     def max = procIds.max
   }
+  // A leader message informs the elected leader of the result.
+  case class Leader(port: Int)
 }
 
 //
 // `RingBasedLeaderElection` is functionality that can be mixed into
 // an `AbstractPig` which performs a ring-based leader election
-// when triggered.
+// when triggered by an Election() message.
 //
 trait RingBasedLeaderElection extends AbstractPig {
   this: AbstractPig with Neighbors =>
@@ -135,16 +131,29 @@ trait RingBasedLeaderElection extends AbstractPig {
   import RingBasedElectionMessages._
   import Constants.ELECTION_TIMEOUT
   
-  @volatile var leader: Boolean = false
+  var leader: Option[AbstractActor] = None
 
   override def actions = super.actions ++ Seq(action)
     
   private val action: Any ~> Unit  = {
+    case Leader(p) => {
+      log.debug("%d setting leader to %d" format(port,p))
+      leader = Some(if (p == port) this else neighbors(p))
+      sender ! Ack
+    }
     case e: Election => {
       sender ! Ack
       // If the message contains our port then we've gone around the circle.
       if (e.procIds.contains(port)) {
-        log.info("Election %d finished: %d is the leader." format(e.id, e.max))
+        log.info("Election %s finished: %d is the leader." format(e.id, e.max))
+        // Send out the new leader to everyone.
+        for ((p,n) <- neighbors) 
+          n !? (200, Leader(e.max)) match { 
+            case None => log.error("%d did not respond to Leader message" format p)
+            case _    => ()
+          }
+        // Set the new leader for ourself too
+        this ! Leader(e.max)
       } else {
         // Otherwise, we should pass it along, skipping
         // neighbors that don't responsd within the timeout.
@@ -154,10 +163,10 @@ trait RingBasedLeaderElection extends AbstractPig {
           if (!done) {
             (n !? (ELECTION_TIMEOUT, msg)) match {
               case Some(_) => {
-                log.debug("Election from %d -> %d, succeeded..."         format (port, p))
+                log.debug("Election from %d -> %d, succeeded..." format (port, p))
                 done = true
               }
-              case None    => log.error("Election from %d -> %d, failed. Moving on..." format (port, p))
+              case None => log.error("Election from %d -> %d, failed. Moving on..." format (port, p))
             }
           }
         }
@@ -168,6 +177,33 @@ trait RingBasedLeaderElection extends AbstractPig {
 }
 
 
+//
+// Game Logic
+//
+
+// A stone column is simply a position on the map.
+case class StoneColumn(position: Int)
+
+
+// TODO
+object GameMessages {
+  case class SomeMessage()
+}
+trait PigGameLogic extends AbstractPig {
+  this: AbstractPig with Neighbors with RingBasedLeaderElection =>
+    
+  import GameMessages._
+  override def actions = super.actions ++ Seq(action)
+    
+  // There are a bunch of things available to us:
+  // this.leader: Option[AbstractActor]  -- the current leader
+  // this.port  : Int -- our port
+  // this.neighbors: Map[Int, AbstractActor] -- a map from ports to other pigs
+  
+  private val action: Any ~> Unit  = {
+    case SomeMessage => !!!
+  }
+}
 
 
 //
@@ -187,7 +223,7 @@ object Main extends App {
 
 object Constants {
   val BASE_PORT = 10000
-  val ELECTION_TIMEOUT = 500 //ms
+  val ELECTION_TIMEOUT = 300 //ms
 }
 
 object PigsRunner extends Logging {
@@ -221,13 +257,16 @@ object PigsRunner extends Logging {
     log.debug("Initiating an election..")
     pigs.head ! RingBasedElectionMessages.Election()
     
-    Thread.sleep(3000)
+    Thread.sleep(1000)
     
     log.debug("Killing the leader..")
     pigs.last !? Exit
     
     log.debug("Initiating an election..")
     pigs.head ! RingBasedElectionMessages.Election()
+    
+    
+    // TODO: Start the game here.
     
     Thread.sleep(3000)
     log.debug("Sending exits..")
