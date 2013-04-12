@@ -52,7 +52,9 @@ object Util {
 // of messages.
 //
 abstract class AbstractPig extends AbstractActor with Actor with Logging {
-  
+  //process id for this actor/pig
+  val id:String
+
   // The port on which this pig will run.
   val port: Int
   
@@ -83,7 +85,7 @@ abstract class AbstractPig extends AbstractActor with Actor with Logging {
 // Neighbors
 //
 object NeighborMessages {
-  case class SetNeighbors(procIds: Seq[Int])
+  case class SetNeighbors(ports: Seq[Int])
   case class DebugNeighbors()
 }
 trait Neighbors extends AbstractPig with Logging {
@@ -93,7 +95,7 @@ trait Neighbors extends AbstractPig with Logging {
   import NeighborMessages._
   
   // The linked-map preserves the given neighbor ordering.
-  @volatile var neighbors: LinkedHashMap[Int, AbstractActor] = new LinkedHashMap()
+  @volatile var neighbors: LinkedHashMap[String, AbstractActor] = new LinkedHashMap()
     
   private val action: Any ~> Unit  = { 
     case n: SetNeighbors => { log.debug("" + port + " recieved neighbor list: " + n); setNeighbors(n); sender ! Ack }
@@ -101,8 +103,8 @@ trait Neighbors extends AbstractPig with Logging {
   }
   
   def setNeighbors(n: SetNeighbors): Unit = {
-    neighbors = new LinkedHashMap[Int,AbstractActor] ++ (n.procIds.map(port => 
-      port -> select(Node("localhost", port), Symbol(port.toString))
+    neighbors = new LinkedHashMap[String,AbstractActor] ++ (n.ports.map(port =>
+      id -> select(Node("localhost", port), Symbol(port.toString))
     ).toSeq)
   }
   
@@ -134,14 +136,14 @@ object RingBasedElectionMessages {
   // An Election message has an id and the process id's
   // of all the nodes it has been passed through.
   // It is also used to initiate an Election.
-  case class Election(procIds: Seq[Int] = Seq.empty) {
+  case class Election(procIds: Seq[String] = Seq.empty) {
     val id  = UUID.randomUUID().toString.take(8)
     def max = procIds.max
   }
   // A leader message informs the elected leader of the result.
   case class SetLeader(port: Int)
   case class WhoIsLeader()
-  case class Leader(leader: Option[Int])
+  case class Leader(id: String)
 }
 
 //
@@ -168,14 +170,14 @@ trait RingBasedLeaderElection extends AbstractPig {
     }
     case SetLeader(p) => {
       log.debug("%d setting leader to %d" format(port,p))
-      leader = Some(if (p == port) this else neighbors(p))
+      leader = Some(if (p == id) this else neighbors(p))
       sender ! Ack
     }
     case e: Election => {
       sender ! Ack
-      // If the message contains our port then we've gone around the circle.
-      if (e.procIds.contains(port)) {
-        log.info("Election %s finished: %d is the leader." format(e.id, e.max))
+      // If the message contains our id then we've gone around the circle.
+      if (e.procIds.contains(id)) {
+        log.info("Election %s finished: %s is the leader." format(e.id, e.max))
         // Send out the new leader to everyone.
         for ((p,n) <- neighbors) 
           n !? (200, SetLeader(e.max)) match { 
@@ -186,8 +188,8 @@ trait RingBasedLeaderElection extends AbstractPig {
         this ! SetLeader(e.max)
       } else {
         // Otherwise, we should pass it along, skipping
-        // neighbors that don't responsd within the timeout.
-        val msg = e.copy(procIds = e.procIds ++ Seq(port))
+        // neighbors that don't respond within the timeout.
+        val msg = e.copy(procIds = e.procIds ++ Seq(id))
         var done = false
         for ((p,n) <- neighbors) {
           if (!done) {
@@ -401,7 +403,9 @@ trait PigGameLogic extends AbstractPig with Logging {
 // Running it all.
 //
 
-class Pig(val port: Int) extends AbstractPig with Neighbors with RingBasedLeaderElection with LamportClock with PigGameLogic
+class Pig(val port: Int) extends AbstractPig with Neighbors with RingBasedLeaderElection with LamportClock with PigGameLogic {
+  val id  = UUID.randomUUID().toString.take(8)
+}
 
 class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) extends Logging {
   import GameMessages._
@@ -560,8 +564,8 @@ object PigsRunner extends Logging {
     pigs -> ports
   }
   
-  def setNeighborsInRingOrder(pigs: Seq[Pig], ports: Seq[Int]): Unit =
-    for ((pig, neighbors) <- (pigs.zip(Stream.continually(ports).flatten.sliding(ports.size).map(_.drop(1).toArray.toSeq).toSeq)))
+  def setNeighborsInRingOrder(pigs: Seq[Pig], ids: Seq[Int]): Unit =
+    for ((pig, neighbors) <- (pigs.zip(Stream.continually(ids).flatten.sliding(ids.size).map(_.drop(1).toArray.toSeq).toSeq)))
       pig !? NeighborMessages.SetNeighbors(neighbors)
 
   def main(args: Array[String]): Unit = {
