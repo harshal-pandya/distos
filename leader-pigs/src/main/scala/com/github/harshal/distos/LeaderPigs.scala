@@ -97,29 +97,31 @@ trait Neighbors extends AbstractPig with Logging {
   import NeighborMessages._
   
   // The linked-map preserves the given neighbor ordering.
-  @volatile var neighborsByPort: LinkedHashMap[String, AbstractActor] = new LinkedHashMap()
+  @volatile var neighbors: Seq[AbstractActor] = Seq.empty
+  @volatile var neighborsByPort: LinkedHashMap[Int,    AbstractActor] = new LinkedHashMap()
   @volatile var neighborsById:   LinkedHashMap[String, AbstractActor] = new LinkedHashMap()
     
   private val action: Any ~> Unit  = { 
     case n: SetNeighbors => { log.debug("" + port + " recieved neighbor list: " + n); setNeighbors(n); sender ! Ack }
-    case    DebugNeighbors => { log.info("" + port + " Neighbors: " + neighbors.keys.mkString(",")) }
+    case    DebugNeighbors => { log.info("" + port + " Neighbors: " + neighborsById.keys.mkString(",")) }
     case GetId() => sender ! Id(id)
   }
   
   def setNeighbors(n: SetNeighbors): Unit = {
-    neighborsByPort = new LinkedHashMap[String,AbstractActor] ++ (n.ports.map(port =>
-      id -> select(Node("localhost", port), Symbol(port.toString))
+    neighborsByPort = new LinkedHashMap[Int,AbstractActor] ++ (n.ports.map(port =>
+      port -> select(Node("localhost", port), Symbol(port.toString))
     ).toSeq)
-    neighborsById = new LinkedHashMap[String, AbstractActor] ++ (neighborsByPort.map { case (_, pig) =>
+    neighbors = neighborsByPort.values.toSeq
+    neighborsById = new LinkedHashMap[String, AbstractActor] ++ (neighbors.map(pig =>
       pig !? GetId() match { 
         case Id(id) => Some(id -> pig)
         case _ => None 
       }
-    }.flatten)
+    ).flatten)
   }
 
   // Send messages to all neighbors asynchronously.
-  def flood(msg: Any) = for (n <- neighbors.values) n ! msg
+  def flood(msg: Any) = for (n <- neighbors) n ! msg
 
 }
 
@@ -151,9 +153,9 @@ object RingBasedElectionMessages {
     def max = procIds.max
   }
   // A leader message informs the elected leader of the result.
-  case class SetLeader(port: Int)
+  case class SetLeader(id: String)
   case class WhoIsLeader()
-  case class Leader(id: String)
+  case class LeaderPort(port: Option[Int])
 }
 
 //
@@ -175,12 +177,12 @@ trait RingBasedLeaderElection extends AbstractPig {
     
   private val action: Any ~> Unit  = {
     case WhoIsLeader => leader match {
-      case Some(l) => sender ! Leader(Some(neighbors.filter(_._2 == l).head._1))
-      case None    => sender ! Leader(None)
+      case Some(l) => sender ! LeaderPort(Some(neighborsByPort.filter(_._2 == l).head._1))
+      case None    => sender ! LeaderPort(None)
     }
-    case SetLeader(p) => {
-      log.debug("%d setting leader to %d" format(port,p))
-      leader = Some(if (p == id) this else neighbors(p))
+    case SetLeader(remoteId) => {
+      log.debug("%s setting leader to %s" format(id, remoteId))
+      leader = Some(if (remoteId == id) this else neighborsById(remoteId))
       sender ! Ack
     }
     case e: Election => {
@@ -189,9 +191,9 @@ trait RingBasedLeaderElection extends AbstractPig {
       if (e.procIds.contains(id)) {
         log.info("Election %s finished: %s is the leader." format(e.id, e.max))
         // Send out the new leader to everyone.
-        for ((p,n) <- neighbors) 
+        for ((nId,n) <- neighborsById) 
           n !? (200, SetLeader(e.max)) match { 
-            case None => log.error("%d did not respond to Leader message" format p)
+            case None => log.error("%d did not respond to Leader message" format nId)
             case _    => ()
           }
         // Set the new leader for ourself too
@@ -201,14 +203,14 @@ trait RingBasedLeaderElection extends AbstractPig {
         // neighbors that don't respond within the timeout.
         val msg = e.copy(procIds = e.procIds ++ Seq(id))
         var done = false
-        for ((p,n) <- neighbors) {
+        for ((nId,n) <- neighborsById) {
           if (!done) {
             (n !? (ELECTION_TIMEOUT, msg)) match {
               case Some(_) => {
-                log.debug("Election from %d -> %d, succeeded..." format (port, p))
+                log.debug("Election from %s -> %s, succeeded..." format (id, nId))
                 done = true
               }
-              case None => log.error("Election from %d -> %d, failed. Moving on..." format (port, p))
+              case None => log.error("Election from %s -> %s, failed. Moving on..." format (id, nId))
             }
           }
         }
