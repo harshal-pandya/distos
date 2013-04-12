@@ -1,17 +1,15 @@
 package com.github.harshal.distos
 
+import com.codahale.logula.Logging
+import org.apache.log4j.Level
+import java.util.UUID
 import scala.actors._
 import scala.actors.Actor._
 import scala.actors.remote._
 import scala.actors.remote.RemoteActor._
-import scala.util.Random
-import scala.collection.immutable.TreeMap
-import Util._
-import com.codahale.logula.Logging
-import org.apache.log4j.Level
 import scala.collection.mutable.LinkedHashMap
-import java.util.UUID
-import javax.net.ssl.SSLEngineResult.Status
+import scala.util.Random
+import Util._
 
 // Various, general utilities and conveniences used in the code.
 object Util {
@@ -23,8 +21,9 @@ object Util {
   type ~>[A, B] = PartialFunction[A, B]
   
   // Essentially a TODO that doesn't bother the type-checker.
-  def !!! = throw new Error("Not yet implemnted!")
+  def !!! = throw new Error("Not yet implemented!")
   
+  // Random to be used by everyone.
   val rand = new Random()
   
   // Convenience functions
@@ -43,6 +42,7 @@ object Util {
   var NETWORK_DELAY: Int = 5
   def simulateNetworkDelay(clock: Clock): Unit = for (_ <- 0 to rand.nextInt(NETWORK_DELAY)) clock.tick()
 
+  // The identifier of a stone column
   val COLUMN = -2
 }
 
@@ -205,14 +205,6 @@ trait RingBasedLeaderElection extends AbstractPig {
 //
 // Game Logic
 //
-
-// A stone column is simply a position on the map.
-case class StoneColumn(position: Int){
-  val objectId = -2
-}
-
-
-// TODO
 object GameMessages {
   
   // Game Engine => ()
@@ -229,39 +221,28 @@ object GameMessages {
   case class Port(x: Int)
   case class Position(x: Int)
   case class SetPosition(x: Int)
-  case class SetLeft(x: Int)
-  case class SetRight(x: Int)
   
   // Pig => Game Engine
-  case class Done()
   case class WasHit(status: Boolean)
   
   type GameMap = Seq[Option[Int]]
   
   // Pig => Pig
   case class BirdApproaching(position: Int, clock: Clock)
-  
 }
 
 
-trait PigGameLogic extends AbstractPig {
+trait PigGameLogic extends AbstractPig with Logging {
   this: AbstractPig with Neighbors with RingBasedLeaderElection with LamportClock =>
-
-  //import GameMessages._
-
   override def actions = super.actions ++ Seq(action)
-    
-  // There are a bunch of things available to us:
-  // this.leader: Option[AbstractActor]  -- the current leader
-  // this.port  : Int -- our port
-  // this.neighbors: Map[Int, AbstractActor] -- a map from ports to other pigs
-  
+
+  import GameMessages._
+
   var currentPos:Int = -1
   var moveTime: Option[Clock] = None
   var hitTime: Option[Clock] = None
   var impacted: Boolean = false
   var gameMap: GameMessages.GameMap = null
-
 
   /**
    * check if this position is empty and available for moving into
@@ -278,12 +259,11 @@ trait PigGameLogic extends AbstractPig {
     else false
   }
 
-
   /**
    * Find an empty spot next to yourself and move if possible
    * @return true if moved successfuly else false
    */
-  def move():Boolean =  {
+  def move(): Boolean =  {
     if (available(currentPos - 1)){
       currentPos -= 1
       true
@@ -301,7 +281,7 @@ trait PigGameLogic extends AbstractPig {
    * @param pos
    * @return
    */
-  def move(pos:Int):Boolean={
+  def move(pos: Int): Boolean = {
     if (available(pos)) {
       currentPos = pos
       true
@@ -316,9 +296,11 @@ trait PigGameLogic extends AbstractPig {
    */
   def moveIfRequired(targetPos: Int) = {
     if (isMoveRequired(targetPos))
-      !move(currentPos+1) //if unable to move return true
-    else
-      false //if safe return false
+      //if unable to move return true
+      !move(currentPos+1)
+    else 
+      //if safe return false
+      false
   }
 
   /**
@@ -338,18 +320,18 @@ trait PigGameLogic extends AbstractPig {
   def isColumn(pos: Int)  = if (validPos(pos)) gameMap(pos) == Some(COLUMN) else false
 
   /**
-   * Is this postion not empty?
+   * Is this position not empty?
    * @param pos
    * @return
    */
-  def isNotEmpty(pos:Int) = if (validPos(pos)) gameMap(pos) != None else false
+  def isNotEmpty(pos: Int) = if (validPos(pos)) gameMap(pos) != None else false
 
   /**
    * To check if next position is beyond the map boundary
    * @param pos
    * @return
    */
-  def validPos(pos:Int) = !(pos < 0 || gameMap.size <= pos)
+  def validPos(pos: Int) = !(pos < 0 || gameMap.size <= pos)
 
   /**
    * compare the Lamport's clock for the move time and the hit time and
@@ -358,22 +340,22 @@ trait PigGameLogic extends AbstractPig {
    * @param hitTime
    * @return
    */
-  def checkIfHit(moveTime:Option[Clock],hitTime:Option[Clock]):Boolean = {
-    (moveTime,hitTime) match {
-      case (Some(mtime),Some(htime)) => mtime._clockValue> htime._clockValue
-      case (None,Some(htime)) => true
-      case _ => println("Hit time not set!!!!"); false
+  def checkIfHit(moveTime: Option[Clock], hitTime: Option[Clock]): Boolean = {
+    (moveTime, hitTime) match {
+      case (Some(mtime), Some(htime)) => mtime._clockValue > htime._clockValue
+      case (None,        Some(htime)) => true
+      case _ => false.withEffect(_ => log.error("Hit time not set!!!!"))
     }
   }
 
   private val action: Any ~> Unit = {
 
-    case GameMessages.Map(map) => {
-      this.gameMap = map
+    case Map(map) => {
+      gameMap = map
       sender ! Ack
     }
 
-    case GameMessages.Trajectory(targetPos,timeToTarget) => {
+    case Trajectory(targetPos,timeToTarget) => {
       if (amLeader){
         flood(GameMessages.BirdApproaching(targetPos, clock.tick()))
         Thread.sleep(timeToTarget)
@@ -381,68 +363,47 @@ trait PigGameLogic extends AbstractPig {
       }
     }
 
-    case GameMessages.BirdApproaching(targetPos, incomingClock) => {
+    case BirdApproaching(targetPos, incomingClock) => {
       
       clock.setMax(incomingClock)
       Util.simulateNetworkDelay(clock)
       
-      // deal with ourselves
-      if (targetPos == currentPos - 1 && isColumn(currentPos-1)) {
-        // TODO
-        impacted=true
+      // Move if required
+      if (((targetPos == currentPos-1) && isColumn(currentPos-1)) ||
+          currentPos == targetPos) {
+        impacted = true
         val success = move()
         clock.tick()
-        if (success) moveTime = Some(clock.copy())
-      }
-      else if (currentPos == targetPos){
-        impacted=true
-        val success = move()
-        clock.tick()
-        if (success) moveTime = Some(clock.copy())
+        if (success)
+          moveTime = Some(clock.copy())
       }
     }
-
-    // TODO: 
-//    case TakeShelter(targetPos,hopCount) => {
-//      if (hopCount > 0){
-//        left  ! TakeShelter(targetPos, hopCount - 1)
-//        right ! TakeShelter(targetPos, hopCount - 1)
-//      }
-//      if (targetPos!=currentPos && !gameOver){
-//        hit = moveIfRequired(targetPos)
-//      }
-//      else if (targetPos!=currentPos && isMoveRequired(targetPos)) //game over but not yet updated state
-//        hit = true
-//    }
-    case GameMessages.BirdLanded(incomingClock) =>{
+    case BirdLanded(incomingClock) =>{
       clock.setMax(incomingClock)
       Util.simulateNetworkDelay(clock)
       clock.tick()
       hitTime = Some(clock.copy())
     }
-    case GameMessages.Status() => {
-      sender ! GameMessages.WasHit(checkIfHit(moveTime,hitTime))
+    case Status() => {
+      // TODO: checkIfHit returns true even if the pig didn't have to move.
+      sender ! WasHit(checkIfHit(moveTime, hitTime))
     }
-    case GameMessages.WasHit(isHit) => {
+    case WasHit(isHit) => {
 
       //TODO
     }
-    case GameMessages.GetPort() => { sender ! GameMessages.Port(port) }
-    case GameMessages.GetPosition() => { sender ! GameMessages.Position(currentPos) }
-    case GameMessages.SetPosition(x) => {
-      currentPos = x
-      sender ! GameMessages.Done
+    case GetPort() => { 
+      sender ! Port(port)
     }
-//    case SetLeft(port) => {
-//      left = select(Node("localhost", port), Symbol(port.toString))
-//      sender ! Done()
-//    }
-//    case SetRight(port) => {
-//      right = select(Node("localhost", port), Symbol(port.toString))
-//      sender ! Done()
-//    }
-    case Exit => {  sender ! GameMessages.Done(); exit() }
-    case m => throw new Error("Unknown message: " + m)
+    case GetPosition() => { 
+      sender ! Position(currentPos)
+    }
+    case SetPosition(x) => {
+      currentPos = x
+      sender ! Ack
+    }
+    case Exit => { sender ! Ack; exit() }
+    case m => throw new Exception("Unknown message: " + m)
   }
 }
 
@@ -453,44 +414,11 @@ trait PigGameLogic extends AbstractPig {
 
 class Pig(val port: Int) extends AbstractPig with Neighbors with RingBasedLeaderElection with LamportClock
 
-class GameEngine(pigs:Seq[Pig] , worldSizeRatio: Int) {
+class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) {
   import GameMessages._
 
-  private val rand = new Random()
-
   private val numPigs = pigs.size
-
   private val worldSize = worldSizeRatio * numPigs
-
-//  def generateTopologyWithoutPorts: Seq[AbstractActor] = generateTopology.map(_._2)
-//  def generateTopology: Seq[(Int, AbstractActor)] = {
-//
-//    println("Gathering Pigs...")
-//
-//    val pigs: Seq[(Int, AbstractActor)] = (1 to numPigs).map(_ + BASE_PORT).map(port => {
-//      println("Looking up on port: " + port)
-//      val p: AbstractActor = select(Node("localhost", port), Symbol(port.toString))
-//      println("Checking alive: " + (p !? GetPosition()))
-//      port -> p
-//    })
-//
-//    println("done gathering.")
-//
-//    println("Can we communicate with the first pig?: " + (pigs.head._2 !? GetPosition()))
-//
-//    for ((prev, curr) <- pigs.zip(pigs.drop(1))) {
-//      prev._2 !? SetRight(curr._1)
-//      curr._2 !? SetLeft (prev._1)
-//    }
-//    println("done setting mid positions")
-//
-//    pigs.head._2 ! SetLeft (pigs.last._1)
-//    pigs.last._2 ! SetRight(pigs.head._1)
-//
-//    println("done setting end positions")
-//
-//    pigs
-//  }
 
   def generateMap(permutFn: Seq[Int] => Seq[Int] = rand.shuffle(_)): Array[Option[Int]] = {
 
@@ -502,20 +430,13 @@ class GameEngine(pigs:Seq[Pig] , worldSizeRatio: Int) {
     //Generate a random permutation of the array indices
     val posVector: Seq[Int] = permutFn(0 until worldSize)
 
-//    val pigs: Seq[((Int, AbstractActor), Int)]  = generateTopology.zip(posVector.take(numPigs))
-
     val columnPos: Seq[Int] = posVector.takeRight(numColumns)
 
-    for ((pig,pos) <- pigs.zip(posVector.take(numPigs))) {
-//TODO      pig !? SetPosition(pos)
+    for ((pig,pos) <- pigs.zip(posVector.take(numPigs)))
       world(pos) = Some(pig.port)
-    }
 
-    val stoneColumns = for (pos <- columnPos) yield {
-      val column = new StoneColumn(pos)
-      world(pos) = Some(column.objectId)
-      column
-    }
+    for (pos <- columnPos)
+      world(pos) = Some(COLUMN)
 
     world
   }
@@ -565,20 +486,9 @@ class GameEngine(pigs:Seq[Pig] , worldSizeRatio: Int) {
   def launch(leader:Pig) {
     val world = generateMap()
     val target = pickTarget
-    launch(target,leader,pigs,world,exit=false)
+    launch(target, leader, pigs, world, exit = false)
 //    prettyPrint(target, launch(target, pigs, world, exit = false), world)
   }
-
-//  def stats(target: Int, statuses: Seq[(Int, Boolean)], world: Seq[Option[Int]]) {
-//
-//    println("---------------------")
-//    println(world.mkString("\n"))
-//    println("---------------------")
-//    println("target: " + target)
-//    println("---------------------")
-//    println(statuses.mkString("\n"))
-//
-//  }
 
   def prettyPrintMap(world: Seq[Option[Int]]) {
 
