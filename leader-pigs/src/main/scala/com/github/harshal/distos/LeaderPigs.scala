@@ -218,6 +218,7 @@ object GameMessages {
   case class BirdLanded(clock: Clock)
   case class GetPosition()
   case class SetPosition(x: Int)
+  case class Position(x: Int)
   case class GetPort()
   case class Port(x: Int)
   
