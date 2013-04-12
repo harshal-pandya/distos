@@ -7,9 +7,10 @@ import scala.actors._
 import scala.actors.Actor._
 import scala.actors.remote._
 import scala.actors.remote.RemoteActor._
-import scala.collection.mutable.LinkedHashMap
+import collection.mutable.{ArrayBuffer, LinkedHashMap}
 import scala.util.Random
 import Util._
+import collection.mutable
 
 // Various, general utilities and conveniences used in the code.
 object Util {
@@ -120,8 +121,11 @@ trait Neighbors extends AbstractPig with Logging {
     ).flatten)
   }
 
-  // Send messages to all neighbors asynchronously.
-  def flood(msg: Any) = for (n <- neighbors) n ! msg
+  // Send messages to all neighbors asynchronously and yourself.
+  def flood(msg: Any) = {
+    for (n <- neighbors) n ! msg
+    this ! msg
+  }
 
 }
 
@@ -241,10 +245,12 @@ object GameMessages {
   case class Position(x: Int)
   case class GetPort()
   case class Port(x: Int)
-  
+  case class Statuses(map:mutable.HashMap[String,Boolean])
   // Pig => Game Engine
-  case class WasHit(status: Boolean)
-  
+  case class WasHit(id:String,status: Boolean)
+
+  case class GetStatusMap()
+
   type GameMap = Seq[Option[Int]]
   
   // Pig => Pig
@@ -262,6 +268,7 @@ trait PigGameLogic extends AbstractPig with Logging {
   var hitTime: Option[Clock] = None
   var impacted: Boolean = false
   var gameMap: GameMessages.GameMap = null
+  val statusMap = mutable.HashMap[String,Boolean]()
 
   /**
    * To check if next position is beyond the map boundary
@@ -375,11 +382,12 @@ trait PigGameLogic extends AbstractPig with Logging {
 
     case BirdApproaching(targetPos, incomingClock) => {
       
-      clock.setMax(incomingClock)
       Util.simulateNetworkDelay(clock)
-      
+      clock.setMax(incomingClock)
       // Move if required
       if (((targetPos == currentPos-1) && isColumn(currentPos-1)) ||
+        ((targetPos == currentPos-2) && isColumn(currentPos-1)) ||
+        ((targetPos == currentPos-1) && isNotEmpty(currentPos-1)) ||
           currentPos == targetPos) {
         impacted = true
         val success = move()
@@ -396,18 +404,19 @@ trait PigGameLogic extends AbstractPig with Logging {
       hitTime = Some(clock.copy())
     }
     
+    case WasHit(id,isHit) => {
+      statusMap.put(id,isHit)
+    }
+
     case Status() => {
-      sender ! WasHit(if (impacted) checkIfHit(moveTime, hitTime) else false)
+      sender ! WasHit(id,if (impacted) checkIfHit(moveTime, hitTime) else false)
     }
-    
-    case WasHit(isHit) => {
-      //TODO
-    }
-    
+
     // Getters and Setters
     case GetPort()      => sender ! Port(port)
     case GetPosition()  => sender ! Position(currentPos)
     case SetPosition(x) => { currentPos = x; sender ! Ack }
+    case GetStatusMap() => sender! Statuses(statusMap)
   }
 }
 
@@ -454,7 +463,7 @@ class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) extends Logging {
       leader   : AbstractPig,
       pigs     : Seq[AbstractPig],
       world    : Seq[Option[Int]],
-      exit     : Boolean = true): Unit = {
+      exit     : Boolean = true): mutable.HashMap[String,Boolean] = {
 
     // Send out the game map to all pigs.
     for (pig <- pigs) {
@@ -476,6 +485,9 @@ class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) extends Logging {
 
     leader ! Trajectory(targetPos, timeToTarget)
 
+    Thread.sleep(2000)
+
+    val statusMap = (leader !? GetStatusMap()) match { case Statuses(map) => map; case _ => mutable.HashMap[String,Boolean]() }
 //    // End the round
 //    for (pig <- pigs)
 //      pig !? EndGame()
@@ -489,10 +501,11 @@ class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) extends Logging {
 //        pig !? Exit
 
 //    statuses
+    statusMap
 
   }
 //
-  def launch(leader:Pig) {
+  def launch(leader:Pig): mutable.HashMap[String, Boolean] = {
     val world = generateMap()
     val target = pickTarget
     launch(target, leader, pigs, world, exit = false)
