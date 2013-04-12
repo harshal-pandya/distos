@@ -557,16 +557,6 @@ class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) extends Logging {
 
 }
 
-
-object Main extends App {
-  
-  RemoteActor.classLoader = getClass().getClassLoader()
-  
-  !!!
-  
-  System.exit(0)
-}
-
 object Constants {
   val BASE_PORT = 10000
   val ELECTION_TIMEOUT = 300 //ms
