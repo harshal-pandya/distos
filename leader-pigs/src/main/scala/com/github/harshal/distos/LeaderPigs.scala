@@ -367,6 +367,8 @@ trait PigGameLogic extends AbstractPig with Logging {
       if (amLeader) {
         flood(BirdApproaching(targetPos, clock.tick()))
         Thread.sleep(timeToTarget)
+        clock.tick()
+        flood(BirdLanded(clock))
         flood(Status())
       }
     }
@@ -388,15 +390,14 @@ trait PigGameLogic extends AbstractPig with Logging {
     }
     
     case BirdLanded(incomingClock) =>{
-      clock.setMax(incomingClock)
       Util.simulateNetworkDelay(clock)
+      clock.setMax(incomingClock)
       clock.tick()
       hitTime = Some(clock.copy())
     }
     
     case Status() => {
-      // TODO: checkIfHit returns true even if the pig didn't have to move.
-      sender ! WasHit(checkIfHit(moveTime, hitTime))
+      sender ! WasHit(if (impacted) checkIfHit(moveTime, hitTime) else false)
     }
     
     case WasHit(isHit) => {
