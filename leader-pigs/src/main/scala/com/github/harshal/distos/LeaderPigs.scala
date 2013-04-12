@@ -88,10 +88,9 @@ object NeighborMessages {
 }
 trait Neighbors extends AbstractPig with Logging {
   this: AbstractPig =>
+  override def actions = super.actions ++ Seq(action)
     
   import NeighborMessages._
-  
-  override def actions = super.actions ++ Seq(action)
   
   // The linked-map preserves the given neighbor ordering.
   @volatile var neighbors: LinkedHashMap[Int, AbstractActor] = new LinkedHashMap()
@@ -107,6 +106,7 @@ trait Neighbors extends AbstractPig with Logging {
     ).toSeq)
   }
   
+  // Send messages to all neighbors asynchronously.
   def flood(msg: Any) = for (n <- neighbors.values) n ! msg
 
 }
@@ -114,16 +114,15 @@ trait Neighbors extends AbstractPig with Logging {
 //
 // Lamport Clock
 //
-case class Clock {
+case class Clock() extends Ordered[Clock] {
   @volatile var _clockValue: Int = 0
   def tick(): Clock = { _clockValue += 1; this }
   def setMax(that: Clock) = _clockValue = scala.math.max(this._clockValue, that._clockValue)
   def copy() = { val c = new Clock; c._clockValue = _clockValue; c }
+  def compare(that: Clock) = this._clockValue - that._clockValue
 }
 
-trait LamportClock {
-  val clock: Clock = new Clock
-} 
+trait LamportClock { val clock: Clock = new Clock } 
 
 //
 // Leader Election
@@ -212,7 +211,7 @@ object GameMessages {
 
   // Game Engine => Pig
   case class Map(map: Seq[Option[Int]])
-  case class Trajectory(x: Int,ttt:Int)
+  case class Trajectory(x: Int, ttt:Int)
   case class Status()
   case class StatusResponse(impacted:Boolean,moveTime:Option[Clock],hitTime:Option[Clock])
   case class BirdLanded(clock:Clock)
@@ -245,23 +244,22 @@ trait PigGameLogic extends AbstractPig with Logging {
   var gameMap: GameMessages.GameMap = null
 
   /**
-   * check if this position is empty and available for moving into
+   * To check if next position is beyond the map boundary
    * @param pos
    * @return
    */
-  def available(pos: Int): Boolean = {
-    if (validPos(pos)){
-      gameMap(pos) match {
-        case None => true
-        case _ => false
-      }
-    }
-    else false
-  }
+  def validPos(pos: Int) = !(pos < 0 || gameMap.size <= pos)
+
+  /**
+   * Check if this position is empty and available for moving into
+   * @param pos
+   * @return
+   */
+  def available(pos: Int) = validPos(pos) && gameMap(pos) == None
 
   /**
    * Find an empty spot next to yourself and move if possible
-   * @return true if moved successfuly else false
+   * @return true if moved successfully
    */
   def move(): Boolean =  {
     if (available(currentPos - 1)){
@@ -277,7 +275,7 @@ trait PigGameLogic extends AbstractPig with Logging {
   }
 
   /**
-   * move to this position
+   * Move to this position
    * @param pos
    * @return
    */
@@ -327,13 +325,6 @@ trait PigGameLogic extends AbstractPig with Logging {
   def isNotEmpty(pos: Int) = if (validPos(pos)) gameMap(pos) != None else false
 
   /**
-   * To check if next position is beyond the map boundary
-   * @param pos
-   * @return
-   */
-  def validPos(pos: Int) = !(pos < 0 || gameMap.size <= pos)
-
-  /**
    * compare the Lamport's clock for the move time and the hit time and
    * decide whether you are going to be hit
    * @param moveTime
@@ -342,7 +333,7 @@ trait PigGameLogic extends AbstractPig with Logging {
    */
   def checkIfHit(moveTime: Option[Clock], hitTime: Option[Clock]): Boolean = {
     (moveTime, hitTime) match {
-      case (Some(mtime), Some(htime)) => mtime._clockValue > htime._clockValue
+      case (Some(mtime), Some(htime)) => htime < mtime
       case (None,        Some(htime)) => true
       case _ => false.withEffect(_ => log.error("Hit time not set!!!!"))
     }
@@ -350,16 +341,13 @@ trait PigGameLogic extends AbstractPig with Logging {
 
   private val action: Any ~> Unit = {
 
-    case Map(map) => {
-      gameMap = map
-      sender ! Ack
-    }
+    case Map(map) => { gameMap = map; sender ! Ack }
 
-    case Trajectory(targetPos,timeToTarget) => {
-      if (amLeader){
-        flood(GameMessages.BirdApproaching(targetPos, clock.tick()))
+    case Trajectory(targetPos, timeToTarget) => {
+      if (amLeader) {
+        flood(BirdApproaching(targetPos, clock.tick()))
         Thread.sleep(timeToTarget)
-        flood(GameMessages.Status())
+        flood(Status())
       }
     }
 
@@ -378,32 +366,27 @@ trait PigGameLogic extends AbstractPig with Logging {
           moveTime = Some(clock.copy())
       }
     }
+    
     case BirdLanded(incomingClock) =>{
       clock.setMax(incomingClock)
       Util.simulateNetworkDelay(clock)
       clock.tick()
       hitTime = Some(clock.copy())
     }
+    
     case Status() => {
       // TODO: checkIfHit returns true even if the pig didn't have to move.
       sender ! WasHit(checkIfHit(moveTime, hitTime))
     }
+    
     case WasHit(isHit) => {
-
       //TODO
     }
-    case GetPort() => { 
-      sender ! Port(port)
-    }
-    case GetPosition() => { 
-      sender ! Position(currentPos)
-    }
-    case SetPosition(x) => {
-      currentPos = x
-      sender ! Ack
-    }
-    case Exit => { sender ! Ack; exit() }
-    case m => throw new Exception("Unknown message: " + m)
+    
+    // Getters and Setters
+    case GetPort()      => sender ! Port(port)
+    case GetPosition()  => sender ! Position(currentPos)
+    case SetPosition(x) => { currentPos = x; sender ! Ack }
   }
 }
 
@@ -444,12 +427,13 @@ class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) {
   def pickTarget = rand.nextInt(worldSize-1)
 
   def launch(
-              targetPos: Int,
-              leader:AbstractPig,
-              pigs: Seq[AbstractPig],
-              world: Seq[Option[Int]],
-              exit: Boolean = true) {
+      targetPos: Int,
+      leader   : AbstractPig,
+      pigs     : Seq[AbstractPig],
+      world    : Seq[Option[Int]],
+      exit     : Boolean = true): Unit = {
 
+    // Send out the game map to all pigs.
     for (pig <- pigs)
       pig !? Map(world)
 
@@ -460,12 +444,11 @@ class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) {
               |""".stripMargin)
     prettyPrintMap(world)
 
-
     // random time between 100 and 1000 ms
     val timeToTarget = rand.nextInt(450) + 550
     println("Time to target: " + timeToTarget)
 
-    leader ! Trajectory(targetPos,timeToTarget)
+    leader ! Trajectory(targetPos, timeToTarget)
 
 //    // End the round
 //    for (pig <- pigs)
