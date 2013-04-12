@@ -87,6 +87,8 @@ abstract class AbstractPig extends AbstractActor with Actor with Logging {
 object NeighborMessages {
   case class SetNeighbors(ports: Seq[Int])
   case class DebugNeighbors()
+  case class GetId()
+  case class Id(id: String)
 }
 trait Neighbors extends AbstractPig with Logging {
   this: AbstractPig =>
@@ -95,19 +97,27 @@ trait Neighbors extends AbstractPig with Logging {
   import NeighborMessages._
   
   // The linked-map preserves the given neighbor ordering.
-  @volatile var neighbors: LinkedHashMap[String, AbstractActor] = new LinkedHashMap()
+  @volatile var neighborsByPort: LinkedHashMap[String, AbstractActor] = new LinkedHashMap()
+  @volatile var neighborsById:   LinkedHashMap[String, AbstractActor] = new LinkedHashMap()
     
   private val action: Any ~> Unit  = { 
     case n: SetNeighbors => { log.debug("" + port + " recieved neighbor list: " + n); setNeighbors(n); sender ! Ack }
     case    DebugNeighbors => { log.info("" + port + " Neighbors: " + neighbors.keys.mkString(",")) }
+    case GetId() => sender ! Id(id)
   }
   
   def setNeighbors(n: SetNeighbors): Unit = {
-    neighbors = new LinkedHashMap[String,AbstractActor] ++ (n.ports.map(port =>
+    neighborsByPort = new LinkedHashMap[String,AbstractActor] ++ (n.ports.map(port =>
       id -> select(Node("localhost", port), Symbol(port.toString))
     ).toSeq)
+    neighborsById = new LinkedHashMap[String, AbstractActor] ++ (neighborsByPort.map { case (_, pig) =>
+      pig !? GetId() match { 
+        case Id(id) => Some(id -> pig)
+        case _ => None 
+      }
+    }.flatten)
   }
-  
+
   // Send messages to all neighbors asynchronously.
   def flood(msg: Any) = for (n <- neighbors.values) n ! msg
 
