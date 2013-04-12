@@ -213,13 +213,13 @@ object GameMessages {
   case class Map(map: Seq[Option[Int]])
   case class Trajectory(x: Int, ttt:Int)
   case class Status()
-  case class StatusResponse(impacted:Boolean,moveTime:Option[Clock],hitTime:Option[Clock])
-  case class BirdLanded(clock:Clock)
+  // TODO: currently, this isn't used
+  case class StatusResponse(impacted: Boolean, moveTime: Option[Clock], hitTime: Option[Clock])
+  case class BirdLanded(clock: Clock)
   case class GetPosition()
+  case class SetPosition(x: Int)
   case class GetPort()
   case class Port(x: Int)
-  case class Position(x: Int)
-  case class SetPosition(x: Int)
   
   // Pig => Game Engine
   case class WasHit(status: Boolean)
@@ -229,7 +229,6 @@ object GameMessages {
   // Pig => Pig
   case class BirdApproaching(position: Int, clock: Clock)
 }
-
 
 trait PigGameLogic extends AbstractPig with Logging {
   this: AbstractPig with Neighbors with RingBasedLeaderElection with LamportClock =>
@@ -315,14 +314,14 @@ trait PigGameLogic extends AbstractPig with Logging {
    * @param pos
    * @return
    */
-  def isColumn(pos: Int)  = if (validPos(pos)) gameMap(pos) == Some(COLUMN) else false
+  def isColumn(pos: Int) = validPos(pos) && (gameMap(pos) == Some(COLUMN))
 
   /**
    * Is this position not empty?
    * @param pos
    * @return
    */
-  def isNotEmpty(pos: Int) = if (validPos(pos)) gameMap(pos) != None else false
+  def isNotEmpty(pos: Int) = validPos(pos) && (gameMap(pos) != None)
 
   /**
    * compare the Lamport's clock for the move time and the hit time and
