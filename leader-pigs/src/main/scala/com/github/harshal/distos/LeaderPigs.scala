@@ -139,7 +139,9 @@ object RingBasedElectionMessages {
     def max = procIds.max
   }
   // A leader message informs the elected leader of the result.
-  case class Leader(port: Int)
+  case class SetLeader(port: Int)
+  case class WhoIsLeader()
+  case class Leader(leader: Option[Int])
 }
 
 //
@@ -160,7 +162,11 @@ trait RingBasedLeaderElection extends AbstractPig {
   override def actions = super.actions ++ Seq(action)
     
   private val action: Any ~> Unit  = {
-    case Leader(p) => {
+    case WhoIsLeader => leader match {
+      case Some(l) => sender ! Leader(Some(neighbors.filter(_._2 == l).head._1))
+      case None    => sender ! Leader(None)
+    }
+    case SetLeader(p) => {
       log.debug("%d setting leader to %d" format(port,p))
       leader = Some(if (p == port) this else neighbors(p))
       sender ! Ack
@@ -172,12 +178,12 @@ trait RingBasedLeaderElection extends AbstractPig {
         log.info("Election %s finished: %d is the leader." format(e.id, e.max))
         // Send out the new leader to everyone.
         for ((p,n) <- neighbors) 
-          n !? (200, Leader(e.max)) match { 
+          n !? (200, SetLeader(e.max)) match { 
             case None => log.error("%d did not respond to Leader message" format p)
             case _    => ()
           }
         // Set the new leader for ourself too
-        this ! Leader(e.max)
+        this ! SetLeader(e.max)
       } else {
         // Otherwise, we should pass it along, skipping
         // neighbors that don't responsd within the timeout.
@@ -395,9 +401,9 @@ trait PigGameLogic extends AbstractPig with Logging {
 // Running it all.
 //
 
-class Pig(val port: Int) extends AbstractPig with Neighbors with RingBasedLeaderElection with LamportClock
+class Pig(val port: Int) extends AbstractPig with Neighbors with RingBasedLeaderElection with LamportClock with PigGameLogic
 
-class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) {
+class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) extends Logging {
   import GameMessages._
 
   private val numPigs = pigs.size
@@ -434,8 +440,11 @@ class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) {
       exit     : Boolean = true): Unit = {
 
     // Send out the game map to all pigs.
-    for (pig <- pigs)
+    for (pig <- pigs) {
+      log.debug("Map sent waiting for ack..")
       pig !? Map(world)
+      log.debug("Pig recieved Map and Ack'd")
+    }
 
     println("""
               |  -----------------------
@@ -536,6 +545,7 @@ object Constants {
 object PigsRunner extends Logging {
   
   import Constants._
+  import RingBasedElectionMessages._
 
   RemoteActor.classLoader = getClass().getClassLoader()
   
@@ -565,25 +575,34 @@ object PigsRunner extends Logging {
     log.debug("Initiating an election..")
     pigs.head ! RingBasedElectionMessages.Election()
     
-    Thread.sleep(1000)
+    Thread.sleep(500)
+//    
+//    log.debug("Killing the leader..")
+//    pigs.last !? Exit
+//    
+//    log.debug("Initiating an election..")
+//    pigs.head ! RingBasedElectionMessages.Election()
     
-    log.debug("Killing the leader..")
-    pigs.last !? Exit
+    // Find the leader
+    val leader = pigs.find(_.amLeader) match {
+      case Some(pig) => pig
+      case None      => throw new Exception("Runner could not find the leader.")
+    }
     
-    log.debug("Initiating an election..")
-    pigs.head ! RingBasedElectionMessages.Election()
+    //
+    // Start the game.
+    //
+    val ge = new GameEngine(pigs, worldSizeRatio)
     
-    
-    // TODO: Start the game here.
-    val leader = pigs.last //TODO confirm this
-    val ge = new GameEngine(pigs,worldSizeRatio)
+    log.info("generating the map..")
     ge.generateMap()
-    ge.launch(pigs.last)
-
+    
+    log.info("launching...")
+    ge.launch(leader)
 
     Thread.sleep(3000)
     log.debug("Sending exits..")
-    pigs.map(_ !? (500, Exit))
+    pigs.map(_ !? (50, Exit))
  
     System.exit(0)
   }
