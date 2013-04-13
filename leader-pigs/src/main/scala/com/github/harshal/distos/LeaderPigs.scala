@@ -159,7 +159,7 @@ object RingBasedElectionMessages {
   // A leader message informs the elected leader of the result.
   case class SetLeader(id: String)
   case class WhoIsLeader()
-  case class LeaderPort(port: Option[Int])
+  case class LeaderId(id: Option[String])
 }
 
 //
@@ -171,18 +171,21 @@ trait RingBasedLeaderElection extends AbstractPig {
   this: AbstractPig with Neighbors =>
     
   import RingBasedElectionMessages._
+  import NeighborMessages._
   import Constants.ELECTION_TIMEOUT
   
-  var leader: Option[AbstractActor] = None
+  @volatile var leader: Option[AbstractActor] = None
   
-  def amLeader: Boolean = leader == Some(this)
+  def amLeader = leader == Some(this)
 
   override def actions = super.actions ++ Seq(action)
     
   private val action: Any ~> Unit  = {
-    case WhoIsLeader => leader match {
-      case Some(l) => sender ! LeaderPort(Some(neighborsByPort.filter(_._2 == l).head._1))
-      case None    => sender ! LeaderPort(None)
+    case WhoIsLeader => actor {
+      leader match {
+        case Some(l) => sender ! LeaderId(if (amLeader) Some(id) else ((leader.get !? GetId()) match { case Id(id) => Some(id) }))
+        case None    => sender ! LeaderId(None)
+      }
     }
     case SetLeader(remoteId) => {
       log.debug("%s setting leader to %s" format(id, remoteId))
@@ -191,13 +194,16 @@ trait RingBasedLeaderElection extends AbstractPig {
     }
     case e: Election => {
       sender ! Ack
+      // If we are the only pig then we're the leader
+      if (e.procIds.isEmpty && neighbors.isEmpty)
+        this ! SetLeader(id)
       // If the message contains our id then we've gone around the circle.
-      if (e.procIds.contains(id)) {
+      else if (e.procIds.contains(id)) {
         log.info("Election %s finished: %s is the leader." format(e.id, e.max))
         // Send out the new leader to everyone.
         for ((nId,n) <- neighborsById) 
-          n !? (200, SetLeader(e.max)) match { 
-            case None => log.error("%d did not respond to Leader message" format nId)
+          n !? (ELECTION_TIMEOUT, SetLeader(e.max)) match { 
+            case None => log.error("%s did not respond to Leader message" format nId)
             case _    => ()
           }
         // Set the new leader for ourself too
@@ -234,7 +240,7 @@ object GameMessages {
   case class Start()
 
   // Game Engine => Pig
-  case class Map(map: Seq[Option[Int]])
+  case class SetMap(map: Seq[Option[Int]])
   case class Trajectory(x: Int, ttt:Int)
   case class Status()
   // TODO: currently, this isn't used
@@ -245,7 +251,7 @@ object GameMessages {
   case class Position(x: Int)
   case class GetPort()
   case class Port(x: Int)
-  case class Statuses(map:mutable.HashMap[String,Boolean])
+  case class Statuses(map: mutable.HashMap[String,Boolean])
   // Pig => Game Engine
   case class WasHit(id:String,status: Boolean)
 
@@ -315,29 +321,6 @@ trait PigGameLogic extends AbstractPig with Logging {
   }
 
   /**
-   * Check if you are in an impacted zone and move
-   * @param targetPos
-   * @return
-   */
-  def moveIfRequired(targetPos: Int) = {
-    if (isMoveRequired(targetPos))
-      //if unable to move return true
-      !move(currentPos+1)
-    else 
-      //if safe return false
-      false
-  }
-
-  /**
-   * To check if you need to move
-   * @param targetPos
-   * @return
-   */
-  def isMoveRequired(targetPos: Int) =
-    (currentPos-1 == targetPos) || 
-    (currentPos-2 == targetPos && isColumn(currentPos-1))
-
-  /**
    * Check if there is a stone column present at this location
    * @param pos
    * @return
@@ -368,7 +351,7 @@ trait PigGameLogic extends AbstractPig with Logging {
 
   private val action: Any ~> Unit = {
 
-    case Map(map) => { gameMap = map; sender ! Ack }
+    case SetMap(map) => { gameMap = map; sender ! Ack }
 
     case Trajectory(targetPos, timeToTarget) => {
       if (amLeader) {
@@ -385,10 +368,10 @@ trait PigGameLogic extends AbstractPig with Logging {
       Util.simulateNetworkDelay(clock)
       clock.setMax(incomingClock)
       // Move if required
-      if (((targetPos == currentPos-1) && isColumn(currentPos-1)) ||
-        ((targetPos == currentPos-2) && isColumn(currentPos-1)) ||
-        ((targetPos == currentPos-1) && isNotEmpty(currentPos-1)) ||
-          currentPos == targetPos) {
+      if (((targetPos == currentPos-1) && isColumn  (currentPos-1)) ||
+          ((targetPos == currentPos-2) && isColumn  (currentPos-1)) ||
+          ((targetPos == currentPos-1) && isNotEmpty(currentPos-1)) ||
+           (targetPos == currentPos)) {
         impacted = true
         val success = move()
         clock.tick()
@@ -405,18 +388,18 @@ trait PigGameLogic extends AbstractPig with Logging {
     }
     
     case WasHit(id,isHit) => {
-      statusMap.put(id,isHit)
+      statusMap.put(id, isHit)
     }
 
     case Status() => {
-      sender ! WasHit(id,if (impacted) checkIfHit(moveTime, hitTime) else false)
+      sender ! WasHit(id, impacted && checkIfHit(moveTime, hitTime))
     }
 
     // Getters and Setters
     case GetPort()      => sender ! Port(port)
     case GetPosition()  => sender ! Position(currentPos)
     case SetPosition(x) => { currentPos = x; sender ! Ack }
-    case GetStatusMap() => sender! Statuses(statusMap)
+    case GetStatusMap() => sender ! Statuses(statusMap)
   }
 }
 
@@ -463,12 +446,12 @@ class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) extends Logging {
       leader   : AbstractPig,
       pigs     : Seq[AbstractPig],
       world    : Seq[Option[Int]],
-      exit     : Boolean = true): mutable.HashMap[String,Boolean] = {
+      exit     : Boolean = true): Map[String, Boolean] = {
 
     // Send out the game map to all pigs.
     for (pig <- pigs) {
       log.debug("Map sent waiting for ack..")
-      pig !? Map(world)
+      pig !? SetMap(world)
       log.debug("Pig recieved Map and Ack'd")
     }
 
@@ -487,25 +470,13 @@ class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) extends Logging {
 
     Thread.sleep(2000)
 
-    val statusMap = (leader !? GetStatusMap()) match { case Statuses(map) => map; case _ => mutable.HashMap[String,Boolean]() }
-//    // End the round
-//    for (pig <- pigs)
-//      pig !? EndGame()
-
-//    Thread.sleep(1000)
-
-//    val statuses = statusAll(pigs)
-
-//    if (exit)
-//      for (pig <- pigs)
-//        pig !? Exit
-
-//    statuses
-    statusMap
-
+    (leader !? GetStatusMap()) match { 
+      case Statuses(map) => map.toMap
+      case _ => Map()
+    }
   }
 //
-  def launch(leader:Pig): mutable.HashMap[String, Boolean] = {
+  def launch(leader:Pig): Map[String, Boolean] = {
     val world = generateMap()
     val target = pickTarget
     launch(target, leader, pigs, world, exit = false)
@@ -558,7 +529,7 @@ class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) extends Logging {
 }
 
 object Constants {
-  val BASE_PORT = 10000
+  var BASE_PORT = 10000
   val ELECTION_TIMEOUT = 300 //ms
 }
 

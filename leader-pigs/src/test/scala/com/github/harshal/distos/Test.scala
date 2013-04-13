@@ -11,88 +11,81 @@ import com.codahale.logula.Logging
 import Util.COLUMN
 
 @Test
-class LeaderElectionTest extends Logging{
+class LeaderElectionTest extends Logging {
   
   @Before
   def setClassPath() {
     RemoteActor.classLoader = getClass().getClassLoader()
+    Constants.BASE_PORT += 100
     println("-----------------------------------")
   }
   
   @Test
-  def test0() = {
+  def test0(): Unit = {
     val numPigs = 1
     val (_, ports) = startPigs(numPigs)
     val pig = select(Node("localhost", ports.head), Symbol((ports.head).toString))
-    pig ! Exit
+    pig !? Exit
   }
+  
+  def findLeader(pigs: Seq[Pig]): Pig = pigs.find(_.amLeader) match {
+    case Some(pig) => pig
+    case None      => throw new Exception("Runner could not find the leader.")
+  }
+  
+//  def findLeaderId(pigs: Seq[Pig]): String = (pigs.head !? RingBasedElectionMessages.WhoIsLeader()) match {
+//    case RingBasedElectionMessages.LeaderId(Some(id)) => id
+//    case RingBasedElectionMessages.LeaderId(None)     => throw new Exception("Runner could not find the leader.")
+//  }
 
   @Test
-  def leaderElection() = {
-    val numPigs = 1
+  def leaderElection(): Unit = {
+    val numPigs = 5
     val (pigs, ports) = startPigs(numPigs)
-
-    var max = pigs.map(_.id).max
-
     setNeighborsInRingOrder(pigs, ports)
-    log.debug("Sending DebugNeighbors..")
-    pigs.map(_ ! NeighborMessages.DebugNeighbors)
+    
+    val max = pigs.maxBy(_.id).id
+    log.debug("max id: %s" format max)
 
     log.debug("Initiating an election..")
     pigs.head ! RingBasedElectionMessages.Election()
+    Thread.sleep(500)
 
-    Thread.sleep(1000)
-
-    var leader = pigs.find(_.amLeader) match {
-      case Some(pig) => pig
-      case None      => throw new Exception("Runner could not find the leader.")
-    }
-
-
+    // Ensure we've found the correct leader
+    //val leaderId = findLeaderId(pigs)
+    val leader = findLeader(pigs)
+    log.debug("Asserting leader is correct..")
+    //assert(leaderId.equals(max))
     assert(leader.id.equals(max))
 
     log.debug("Killing the leader..")
-    leader !? Exit
-
-    val candidate = pigs.find(_.id!=max).get
+    pigs.find(_.id==max).get !? Exit
 
     log.debug("Initiating an election..")
-    pigs.find(_.id!=max).get ! RingBasedElectionMessages.Election()
+    pigs.find(_.id != max).get ! RingBasedElectionMessages.Election()
+    Thread.sleep(500)
 
-    Thread.sleep(1000)
+    val newPigs = pigs.filterNot(_.id == max)
+    val newMax  = newPigs.map(_.id).max
+//    val newLeaderId = findLeaderId(newPigs)
+    val newLeader = findLeader(newPigs)
 
-    val newPigs = pigs.filterNot(_.id==max)
+//    assert(newLeaderId.equals(newMax))
+    assert(newLeader.id.equals(newMax))
 
-    max = newPigs.map(_.id).max
-
-
-    leader = newPigs.find(_.amLeader) match {
-      case Some(pig) => pig
-      case None      => throw new Exception("Runner could not find the leader.")
-    }
-
-
-    assert(leader.id.equals(max))
-
-    Thread.sleep(3000)
     log.debug("Sending exits..")
-    pigs.map(_ !? (500, Exit))
-
-    System.exit(0)
+    newPigs.map(_ !? (500, Exit))
   }
 
   // One pig on a world of size one.
   @Test
-  def test1() = {
+  def test1(): Unit = {
 
     val numPigs = 1
-    val worldSizeRatio = 3
+    val worldSizeRatio = 1
     val (pigs, ports) = startPigs(numPigs)
-    val leader = runLeaderElection(pigs,ports)
+    val leader = runLeaderElection(pigs, ports)
 
-    //
-    // Start the game.
-    //
     val ge = new GameEngine(pigs, worldSizeRatio)
 
     log.info("generating the map..")
@@ -102,15 +95,16 @@ class LeaderElectionTest extends Logging{
 
     log.info("launching...")
     val statusMap = ge.launch(target, leader, pigs, world)
+    log.debug("statusMap: %s" format statusMap.mkString("\n"))
 
-    Thread.sleep(3000)
-    log.debug("Sending exits..")
-    pigs.map(_ !? (50, Exit))
-
+    Thread.sleep(1500)
+    
     assert(statusMap.size == 1)
     assert(statusMap.head._2)
 
-    System.exit(0)
+    log.debug("Sending exits..")
+    pigs.map(_ !? (50, Exit))
+
 //
 //    startPigs(numPigs)
 //    val ge = new GameEngine(numPigs, 1)
@@ -124,7 +118,7 @@ class LeaderElectionTest extends Logging{
   }
 
   @Test
-  def test2() = {
+  def test2(): Unit = {
     val numPigs = 2
     val worldSizeRatio = 2
     val (pigs, ports) = startPigs(numPigs)
@@ -286,7 +280,6 @@ class LeaderElectionTest extends Logging{
     pigs.head ! RingBasedElectionMessages.Election()
 
     Thread.sleep(1000)
-
 
     // Find the leader
     val leader = pigs.find(_.amLeader) match {
