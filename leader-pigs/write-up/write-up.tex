@@ -203,10 +203,22 @@ Our program can be run with:
 \pagebreak
 
 \section{Test cases:}
+We have a total of 6 test cases. 5 of these test whether the pigs respond to messages as expected. They are exemplified by the diagrams below. Note we produce a new leader at the start of each test case.\\
+The Leader Election test case, tests the algorithm by first selecting the leader and then killing a leader and running the election again to produce a new leader. This is repeated twice and it can be seen that a new leader is picked successfully in the event of failure. 
 
 \includegraphics{figs/test1.pdf} \includegraphics{figs/test2.pdf}
 \includegraphics{figs/test3.pdf} \includegraphics{figs/test4.pdf}
 \includegraphics{figs/test5.pdf}
+
+
+\section{Experiments}
+We did 2 major experiments:
+\begin{enumerate}[1.]
+\item
+  Expected number of pigs hit as function of the world size to number of pigs ratio and as a function of the time to target. 
+\item
+  Expected number of pigs hit as a function of the simulated network delay. Note that in both these experiments the positions of the pigs and the stone columns and the number of stone columns are generated randomly. 
+\end{enumerate} 
 
 \section{Sample Election Output:}
 
