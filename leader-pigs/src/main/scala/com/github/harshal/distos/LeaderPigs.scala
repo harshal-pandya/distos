@@ -14,19 +14,19 @@ import collection.mutable
 
 // Various, general utilities and conveniences used in the code.
 object Util {
-  
+
   // A message which indicates an empty reply.
   case class Ack
-  
+
   // A type-constructor shortcut for PartialFunction
   type ~>[A, B] = PartialFunction[A, B]
-  
+
   // Essentially a TODO that doesn't bother the type-checker.
   def !!! = throw new Error("Not yet implemented!")
-  
+
   // Random to be used by everyone.
   val rand = new Random()
-  
+
   // Convenience functions
   class AnyOps[X](x: X) {
     def withEffect (f: X => Unit) : X = { f(x); x }
@@ -38,7 +38,7 @@ object Util {
     log.level = Level.DEBUG
     log.console.enabled = true
   }
-  
+
   // Clock Utils
   var NETWORK_DELAY: Int = 5
   def simulateNetworkDelay(clock: Clock): Unit = for (_ <- 0 to rand.nextInt(NETWORK_DELAY)) clock.tick()
@@ -58,17 +58,17 @@ abstract class AbstractPig extends AbstractActor with Actor with Logging {
 
   // The port on which this pig will run.
   val port: Int
-  
+
   // The behaviors this pig has. 
   //[This is to be extended by various traits;
   // see `LeaderElection` for an example.]
   def actions: Seq[Any ~> Unit] = Seq(defaultActions)
-  
+
   // Behaviors which all pigs should always have.
   val defaultActions: Any ~> Unit = {
     case Exit => { sender ! Ack; log.info("" + port + " exiting."); exit() }
   }
-  
+
   def act() {
     // Register as a RemoteActor
     alive(port)
@@ -79,7 +79,7 @@ abstract class AbstractPig extends AbstractActor with Actor with Logging {
       react(actions.reduce(_ orElse _))
     }
   }
-  
+
 }
 
 //
@@ -94,29 +94,29 @@ object NeighborMessages {
 trait Neighbors extends AbstractPig with Logging {
   this: AbstractPig =>
   override def actions = super.actions ++ Seq(action)
-    
+
   import NeighborMessages._
-  
+
   // The linked-map preserves the given neighbor ordering.
   @volatile var neighbors: Seq[AbstractActor] = Seq.empty
   @volatile var neighborsByPort: LinkedHashMap[Int,    AbstractActor] = new LinkedHashMap()
   @volatile var neighborsById:   LinkedHashMap[String, AbstractActor] = new LinkedHashMap()
-    
-  private val action: Any ~> Unit  = { 
+
+  private val action: Any ~> Unit  = {
     case n: SetNeighbors => { log.debug("" + port + " recieved neighbor list: " + n); setNeighbors(n); sender ! Ack }
     case    DebugNeighbors => { log.info("" + port + " Neighbors: " + neighborsById.keys.mkString(",")) }
     case GetId() => sender ! Id(id)
   }
-  
+
   def setNeighbors(n: SetNeighbors): Unit = {
     neighborsByPort = new LinkedHashMap[Int,AbstractActor] ++ (n.ports.map(port =>
       port -> select(Node("localhost", port), Symbol(port.toString))
     ).toSeq)
     neighbors = neighborsByPort.values.toSeq
     neighborsById = new LinkedHashMap[String, AbstractActor] ++ (neighbors.map(pig =>
-      pig !? GetId() match { 
+      pig !? GetId() match {
         case Id(id) => Some(id -> pig)
-        case _ => None 
+        case _ => None
       }
     ).flatten)
   }
@@ -140,7 +140,7 @@ case class Clock() extends Ordered[Clock] {
   def compare(that: Clock) = this._clockValue - that._clockValue
 }
 
-trait LamportClock { val clock: Clock = new Clock } 
+trait LamportClock { val clock: Clock = new Clock }
 
 //
 // Leader Election
@@ -148,7 +148,7 @@ trait LamportClock { val clock: Clock = new Clock }
 
 // Messages required by the `RingBasedLeaderElection` trait.
 object RingBasedElectionMessages {
-  
+
   // An Election message has an id and the process id's
   // of all the nodes it has been passed through.
   // It is also used to initiate an Election.
@@ -169,16 +169,16 @@ object RingBasedElectionMessages {
 //
 trait RingBasedLeaderElection extends AbstractPig {
   this: AbstractPig with Neighbors =>
-    
+
   import RingBasedElectionMessages._
   import Constants.ELECTION_TIMEOUT
-  
+
   var leader: Option[AbstractActor] = None
-  
+
   def amLeader: Boolean = leader == Some(this)
 
   override def actions = super.actions ++ Seq(action)
-    
+
   private val action: Any ~> Unit  = {
     case WhoIsLeader => leader match {
       case Some(l) => sender ! LeaderPort(Some(neighborsByPort.filter(_._2 == l).head._1))
@@ -195,8 +195,8 @@ trait RingBasedLeaderElection extends AbstractPig {
       if (e.procIds.contains(id)) {
         log.info("Election %s finished: %s is the leader." format(e.id, e.max))
         // Send out the new leader to everyone.
-        for ((nId,n) <- neighborsById) 
-          n !? (200, SetLeader(e.max)) match { 
+        for ((nId,n) <- neighborsById)
+          n !? (200, SetLeader(e.max)) match {
             case None => log.error("%d did not respond to Leader message" format nId)
             case _    => ()
           }
@@ -221,7 +221,7 @@ trait RingBasedLeaderElection extends AbstractPig {
       }
     }
   }
-  
+
 }
 
 
@@ -229,7 +229,7 @@ trait RingBasedLeaderElection extends AbstractPig {
 // Game Logic
 //
 object GameMessages {
-  
+
   // Game Engine => ()
   case class Start()
 
@@ -252,7 +252,7 @@ object GameMessages {
   case class GetStatusMap()
 
   type GameMap = Seq[Option[Int]]
-  
+
   // Pig => Pig
   case class BirdApproaching(position: Int, clock: Clock)
 }
@@ -321,10 +321,10 @@ trait PigGameLogic extends AbstractPig with Logging {
    */
   def moveIfRequired(targetPos: Int) = {
     if (isMoveRequired(targetPos))
-      //if unable to move return true
+    //if unable to move return true
       !move(currentPos+1)
-    else 
-      //if safe return false
+    else
+    //if safe return false
       false
   }
 
@@ -334,8 +334,8 @@ trait PigGameLogic extends AbstractPig with Logging {
    * @return
    */
   def isMoveRequired(targetPos: Int) =
-    (currentPos-1 == targetPos) || 
-    (currentPos-2 == targetPos && isColumn(currentPos-1))
+    (currentPos-1 == targetPos) ||
+      (currentPos-2 == targetPos && isColumn(currentPos-1))
 
   /**
    * Check if there is a stone column present at this location
@@ -381,14 +381,14 @@ trait PigGameLogic extends AbstractPig with Logging {
     }
 
     case BirdApproaching(targetPos, incomingClock) => {
-      
+
       Util.simulateNetworkDelay(clock)
       clock.setMax(incomingClock)
       // Move if required
       if (((targetPos == currentPos-1) && isColumn(currentPos-1)) ||
         ((targetPos == currentPos-2) && isColumn(currentPos-1)) ||
         ((targetPos == currentPos-1) && isNotEmpty(currentPos-1)) ||
-          currentPos == targetPos) {
+        currentPos == targetPos) {
         impacted = true
         val success = move()
         clock.tick()
@@ -396,14 +396,14 @@ trait PigGameLogic extends AbstractPig with Logging {
           moveTime = Some(clock.copy())
       }
     }
-    
+
     case BirdLanded(incomingClock) =>{
       Util.simulateNetworkDelay(clock)
       clock.setMax(incomingClock)
       clock.tick()
       hitTime = Some(clock.copy())
     }
-    
+
     case WasHit(id,isHit) => {
       statusMap.put(id,isHit)
     }
@@ -459,11 +459,11 @@ class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) extends Logging {
   def pickTarget = rand.nextInt(worldSize-1)
 
   def launch(
-      targetPos: Int,
-      leader   : AbstractPig,
-      pigs     : Seq[AbstractPig],
-      world    : Seq[Option[Int]],
-      exit     : Boolean = true): mutable.HashMap[String,Boolean] = {
+              targetPos: Int,
+              leader   : AbstractPig,
+              pigs     : Seq[AbstractPig],
+              world    : Seq[Option[Int]],
+              exit     : Boolean = true): mutable.HashMap[String,Boolean] = {
 
     // Send out the game map to all pigs.
     for (pig <- pigs) {
@@ -480,7 +480,7 @@ class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) extends Logging {
     prettyPrintMap(world)
 
     // random time between 100 and 1000 ms
-    val timeToTarget = rand.nextInt(450) + 550
+    val timeToTarget = rand.nextInt(800) + 200
     println("Time to target: " + timeToTarget)
 
     leader ! Trajectory(targetPos, timeToTarget)
@@ -488,28 +488,28 @@ class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) extends Logging {
     Thread.sleep(2000)
 
     val statusMap = (leader !? GetStatusMap()) match { case Statuses(map) => map; case _ => mutable.HashMap[String,Boolean]() }
-//    // End the round
-//    for (pig <- pigs)
-//      pig !? EndGame()
+    //    // End the round
+    //    for (pig <- pigs)
+    //      pig !? EndGame()
 
-//    Thread.sleep(1000)
+    //    Thread.sleep(1000)
 
-//    val statuses = statusAll(pigs)
+    //    val statuses = statusAll(pigs)
 
-//    if (exit)
-//      for (pig <- pigs)
-//        pig !? Exit
+    //    if (exit)
+    //      for (pig <- pigs)
+    //        pig !? Exit
 
-//    statuses
+    //    statuses
     statusMap
 
   }
-//
+  //
   def launch(leader:Pig): mutable.HashMap[String, Boolean] = {
     val world = generateMap()
     val target = pickTarget
     launch(target, leader, pigs, world, exit = false)
-//    prettyPrint(target, launch(target, pigs, world, exit = false), world)
+    //    prettyPrint(target, launch(target, pigs, world, exit = false), world)
   }
 
   def prettyPrintMap(world: Seq[Option[Int]]) {
@@ -559,11 +559,11 @@ class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) extends Logging {
 
 
 object Main extends App {
-  
+
   RemoteActor.classLoader = getClass().getClassLoader()
-  
+
   !!!
-  
+
   System.exit(0)
 }
 
@@ -573,23 +573,23 @@ object Constants {
 }
 
 object PigsRunner extends Logging {
-  
+
   import Constants._
   import RingBasedElectionMessages._
 
   RemoteActor.classLoader = getClass().getClassLoader()
-  
+
   def startPigs(numPigs: Int): (Seq[Pig], Seq[Int]) = {
     val ports = (1 to numPigs).map(_ + BASE_PORT).toIndexedSeq
     val pigs  = (for (port <- ports) yield
       new Pig(port)
         .withEffect(_.start())
         .withEffect(_ => log.info("Started pig on port: " + port))
-    ).toSeq
-    
+      ).toSeq
+
     pigs -> ports
   }
-  
+
   def setNeighborsInRingOrder(pigs: Seq[Pig], ids: Seq[Int]): Unit =
     for ((pig, neighbors) <- (pigs.zip(Stream.continually(ids).flatten.sliding(ids.size).map(_.drop(1).toArray.toSeq).toSeq)))
       pig !? NeighborMessages.SetNeighbors(neighbors)
@@ -597,44 +597,55 @@ object PigsRunner extends Logging {
   def main(args: Array[String]): Unit = {
     val numPigs = args(0).toInt
     val worldSizeRatio = args(1).toInt
-    val (pigs, ports) = startPigs(numPigs)
-    setNeighborsInRingOrder(pigs, ports)
-    log.debug("Sending DebugNeighbors..")
-    pigs.map(_ ! NeighborMessages.DebugNeighbors)
-    
-    log.debug("Initiating an election..")
-    pigs.head ! RingBasedElectionMessages.Election()
-    
-    Thread.sleep(500)
-//    
-//    log.debug("Killing the leader..")
-//    pigs.last !? Exit
-//    
-//    log.debug("Initiating an election..")
-//    pigs.head ! RingBasedElectionMessages.Election()
-    
-    // Find the leader
-    val leader = pigs.find(_.amLeader) match {
-      case Some(pig) => pig
-      case None      => throw new Exception("Runner could not find the leader.")
-    }
-    
-    //
-    // Start the game.
-    //
-    val ge = new GameEngine(pigs, worldSizeRatio)
-    
-    log.info("generating the map..")
-    ge.generateMap()
-    
-    log.info("launching...")
-    ge.launch(leader)
+    val statuses = for (i<-1 to 5) yield {
+      val (pigs, ports) = startPigs(numPigs)
+      setNeighborsInRingOrder(pigs, ports)
+      log.debug("Sending DebugNeighbors..")
+      pigs.map(_ ! NeighborMessages.DebugNeighbors)
 
-    Thread.sleep(3000)
-    log.debug("Sending exits..")
-    pigs.map(_ !? (50, Exit))
- 
+      log.debug("Initiating an election..")
+      pigs.head ! RingBasedElectionMessages.Election()
+
+      Thread.sleep(500)
+      //
+      //    log.debug("Killing the leader..")
+      //    pigs.last !? Exit
+      //
+      //    log.debug("Initiating an election..")
+      //    pigs.head ! RingBasedElectionMessages.Election()
+
+      // Find the leader
+      val leader = pigs.find(_.amLeader) match {
+        case Some(pig) => pig
+        case None      => throw new Exception("Runner could not find the leader.")
+      }
+
+      //
+      // Start the game.
+      //
+      val ge = new GameEngine(pigs, worldSizeRatio)
+
+      log.info("generating the map..")
+      ge.generateMap()
+
+      log.info("launching...")
+      val status = ge.launch(leader)
+
+      Thread.sleep(3000)
+      log.debug("Sending exits..")
+      pigs.map(_ !? (50, Exit))
+      status
+    }
+    val (_,exp) = stats(statuses)
+    println(exp)
     System.exit(0)
+  }
+
+  def stats(maps:Seq[mutable.HashMap[String,Boolean]])={
+    val deadPigs = maps.foldLeft(0)((acc,m)=>acc+m.filter(_._2).size)
+    val numrounds = maps.length
+    val expectation = deadPigs.toDouble/numrounds
+    (deadPigs,expectation)
   }
 
 }
