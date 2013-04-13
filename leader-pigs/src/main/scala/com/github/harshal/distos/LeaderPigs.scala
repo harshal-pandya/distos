@@ -595,6 +595,7 @@ object PigsRunner extends Logging {
       Thread.sleep(3000)
       log.debug("Sending exits..")
       pigs.map(_ !? (50, Exit))
+      Constants.BASE_PORT += 100
       status
     }
     val (_,exp) = stats(statuses)
