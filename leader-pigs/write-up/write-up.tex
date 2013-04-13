@@ -66,7 +66,7 @@ collaborate to avoid impact with an adversarial bird. The pigs dynamically
 elect a leader amongst themselves and use Lamport's clocks for synchronization.
 
 \subsection{Actors}
-We use the Actor framework to enable communication between machines. The
+We use the actor concurrency model to enable communication between machines. The
 Actor model is a mathematical model of concurrent computation that
 treats ``actors'' as the universal primitives of concurrent digital
 computation: in response to a message that it receives, an actor can
@@ -139,16 +139,13 @@ please refer to the doc provided for exhaustive list.
 
 \begin{itemize}
 \item
-  \texttt{Trajectory(position: Int,timeToLive: Int)} notifies the leader about the
-  birds trajectory.
+  \texttt{Trajectory(position: Int, birdLandingTime: Clock)} notifies the leader about the birds trajectory. That is, an estimate of the bird landing time as a (future) Lamport clock value.
 \item
-  \texttt{BirdApproaching(targetPosition: Int, timestamp: LamportClock)} used by
-  the leader to initiate a round of notifications the pig being
-  hit.
+  \texttt{BirdApproaching(targetPosition: Int, timestamp: Clock)} This message provides is used by the leader to notify the other pigs of when the bird is expected to hit. Each pig attempts to move appropriately.
 \item
-  \texttt{Status()} used to query each pig about its safety.
+  \texttt{Status()} Sent by the leader to query each pig about its safety after the bird landing. Each pig determines its own safety by comparing the Lamport clock value when that pig moved to the clock value for when the bird hit.
 \item
-  \texttt{Election()} to start an election.
+  \texttt{Election()} Any pig can send this message to any other pig (including itself) to initiate a new election.
 \end{itemize}
 
 \subsection{Launching a bird}
@@ -160,21 +157,27 @@ that the bird has landed.
 
 \section{Design Decisions / Trade-offs}
 
-The pigs form a completely connected netowork topology and so hopcounts are 
-not required. However, this increases the complexity of the network and it may not scale well 
-for larger number of nodes.The pigs don't maintain any state apart from their current
-locations in the world.\\
-We choose ring based election algorithm since it involves no synchronization issues and
-is fairly robust to failures. However we make a simplifying assumption that a pig never goes down 
-within a round. If this was not the case we would need to back up the state of the leader and have 
-it communicate to each pig after every event so that it is up to date with the state of every pig.\\
-Lamport's clocks are convenient for this problem since they have much less 
+The pigs form a completely connected netowork topology and so hopcounts are not
+required. However, this increases the complexity of the network and it may not
+scale well for larger number of nodes.The pigs don't maintain any state apart
+from their current locations in the world.
+
+We choose ring based election algorithm since it involves no synchronization
+issues and is fairly robust to failures. However we make a simplifying
+assumption that a pig never goes down within a round. If this was not the case
+we would need to back up the state of the leader and have it communicate to
+each pig after every event so that it is up to date with the state of every
+pig.
+
+Lamport's clocks are convenient for this problem since they have much less
 overhead than vector clocks. Since we are only comparing local timestamps and
-the messages from the leader are broadcast, we can prove the correctness of the ordering.\\
-We do not maintain a shared map data structure and hence the map is not
-updated when the pigs move. This however saves the effort of maintaing a
-synchronous thread-safe data structure that lives on the master and adds
-extra messages to the system.
+the messages from the leader are broadcast, we can prove the correctness of the
+partial ordering we care about.
+
+We do not maintain a shared map data structure and hence the map is not updated
+when the pigs move. This however saves the effort of maintaing a synchronous
+thread-safe data structure that lives on the master and adds extra messages to
+the system.
 
 \section{Possible Improvements}
 
@@ -185,93 +188,81 @@ being affected and have the effect of hits cascade beyond 2 positions.
 
 \section{How to run the program}
 
-We require \texttt{maven}, the Java dependency management tool, to pull
-in all dependencies and generate a jar file of compiled code.
+We require \texttt{sbt}, the Scala Build Tool, to compile and run the code.
 
-We have included two scripts in the code directory:
+Our program can be run with:
 
 \begin{enumerate}[1.]
 \item
-  \textbf{\texttt{bin/install.sh}}: This will retrieve all the
-  dependencies, compile the source.
-\item
-  \textbf{\texttt{bin/run.sh}}: This will run several rounds of the
-  game, running through all of the test cases (shown on the following
-  page).
+  \textbf{\texttt{./sbt11 numPigs worldSizeRatio}}: where numPigs is the number of pigs in the simulation and worldSizeRatio is the ratio of world:pigs. For example, to run with 10 pigs on a world of size 30 you would run: ./sbt11 10 3.
 \end{enumerate}
 
 \pagebreak
 
 \section{Test cases:}
 
-%\includegraphics{figs/test1.pdf} \includegraphics{figs/test2.pdf}
-%\includegraphics{figs/test3.pdf} \includegraphics{figs/test4.pdf}
-%\includegraphics{figs/test5.pdf}
+\includegraphics{figs/test1.pdf} \includegraphics{figs/test2.pdf}
+\includegraphics{figs/test3.pdf} \includegraphics{figs/test4.pdf}
+\includegraphics{figs/test5.pdf}
 
-\section{Sample Output:}
+\section{Sample Election Output:}
 
-When running the pigs:
-
-\begin{verbatim}
-Starting pig on port: 10001
-Starting pig on port: 10002
-Starting pig on port: 10003
-Starting pig on port: 10004
-Starting pig on port: 10005
-Starting pig on port: 10006
-Starting pig on port: 10007
-Starting pig on port: 10008
-Starting pig on port: 10009
-Starting pig on port: 10010
+The following is the log of 10 pigs being started and an election occurring.
+\tiny\begin{verbatim}
+[info] INFO  [2013-04-13 02:50:16,723] com.github.harshal.distos.PigsRunner: Started pig on port: 10001
+[info] INFO  [2013-04-13 02:50:16,725] com.github.harshal.distos.PigsRunner: Started pig on port: 10002
+[info] INFO  [2013-04-13 02:50:16,725] com.github.harshal.distos.PigsRunner: Started pig on port: 10003
+[info] INFO  [2013-04-13 02:50:16,725] com.github.harshal.distos.PigsRunner: Started pig on port: 10004
+[info] INFO  [2013-04-13 02:50:16,725] com.github.harshal.distos.PigsRunner: Started pig on port: 10005
+[info] INFO  [2013-04-13 02:50:16,725] com.github.harshal.distos.PigsRunner: Started pig on port: 10006
+[info] INFO  [2013-04-13 02:50:16,725] com.github.harshal.distos.PigsRunner: Started pig on port: 10007
+[info] INFO  [2013-04-13 02:50:16,725] com.github.harshal.distos.PigsRunner: Started pig on port: 10008
+[info] INFO  [2013-04-13 02:50:16,726] com.github.harshal.distos.PigsRunner: Started pig on port: 10009
+[info] INFO  [2013-04-13 02:50:16,726] com.github.harshal.distos.PigsRunner: Started pig on port: 10010
+[info] DEBUG [2013-04-13 02:50:16,744] com.github.harshal.distos.Pig: 10001 recieved neighbor list: SetNeighbors(WrappedArray(10002, 10003, 10004, 10005, 10006, 10007, 10008, 10009, 10010))
+[info] DEBUG [2013-04-13 02:50:16,803] com.github.harshal.distos.Pig: 10002 recieved neighbor list: SetNeighbors(WrappedArray(10003, 10004, 10005, 10006, 10007, 10008, 10009, 10010, 10001))
+[info] DEBUG [2013-04-13 02:50:16,834] com.github.harshal.distos.Pig: 10003 recieved neighbor list: SetNeighbors(WrappedArray(10004, 10005, 10006, 10007, 10008, 10009, 10010, 10001, 10002))
+[info] DEBUG [2013-04-13 02:50:16,866] com.github.harshal.distos.Pig: 10004 recieved neighbor list: SetNeighbors(WrappedArray(10005, 10006, 10007, 10008, 10009, 10010, 10001, 10002, 10003))
+[info] DEBUG [2013-04-13 02:50:16,898] com.github.harshal.distos.Pig: 10005 recieved neighbor list: SetNeighbors(WrappedArray(10006, 10007, 10008, 10009, 10010, 10001, 10002, 10003, 10004))
+[info] DEBUG [2013-04-13 02:50:16,927] com.github.harshal.distos.Pig: 10006 recieved neighbor list: SetNeighbors(WrappedArray(10007, 10008, 10009, 10010, 10001, 10002, 10003, 10004, 10005))
+[info] DEBUG [2013-04-13 02:50:16,956] com.github.harshal.distos.Pig: 10007 recieved neighbor list: SetNeighbors(WrappedArray(10008, 10009, 10010, 10001, 10002, 10003, 10004, 10005, 10006))
+[info] DEBUG [2013-04-13 02:50:16,988] com.github.harshal.distos.Pig: 10008 recieved neighbor list: SetNeighbors(WrappedArray(10009, 10010, 10001, 10002, 10003, 10004, 10005, 10006, 10007))
+[info] DEBUG [2013-04-13 02:50:17,016] com.github.harshal.distos.Pig: 10009 recieved neighbor list: SetNeighbors(WrappedArray(10010, 10001, 10002, 10003, 10004, 10005, 10006, 10007, 10008))
+[info] DEBUG [2013-04-13 02:50:17,045] com.github.harshal.distos.Pig: 10010 recieved neighbor list: SetNeighbors(WrappedArray(10001, 10002, 10003, 10004, 10005, 10006, 10007, 10008, 10009))
+[info] DEBUG [2013-04-13 02:50:17,078] com.github.harshal.distos.PigsRunner: Sending DebugNeighbors..
+[info] DEBUG [2013-04-13 02:50:17,079] com.github.harshal.distos.PigsRunner: Initiating an election..
+[info] INFO  [2013-04-13 02:50:17,081] com.github.harshal.distos.Pig: 10001 Neighbors: 6aa0b301,e86b6882,304d79d2,0d6111de,1a57e8be,2108d235,c3923891,70de70bf,3a1c105f
+[info] INFO  [2013-04-13 02:50:17,081] com.github.harshal.distos.Pig: 10007 Neighbors: c3923891,70de70bf,3a1c105f,32bc8116,6aa0b301,e86b6882,304d79d2,0d6111de,1a57e8be
+[info] INFO  [2013-04-13 02:50:17,081] com.github.harshal.distos.Pig: 10005 Neighbors: 1a57e8be,2108d235,c3923891,70de70bf,3a1c105f,32bc8116,6aa0b301,e86b6882,304d79d2
+[info] INFO  [2013-04-13 02:50:17,081] com.github.harshal.distos.Pig: 10008 Neighbors: 70de70bf,3a1c105f,32bc8116,6aa0b301,e86b6882,304d79d2,0d6111de,1a57e8be,2108d235
+[info] INFO  [2013-04-13 02:50:17,081] com.github.harshal.distos.Pig: 10002 Neighbors: e86b6882,304d79d2,0d6111de,1a57e8be,2108d235,c3923891,70de70bf,3a1c105f,32bc8116
+[info] INFO  [2013-04-13 02:50:17,081] com.github.harshal.distos.Pig: 10009 Neighbors: 3a1c105f,32bc8116,6aa0b301,e86b6882,304d79d2,0d6111de,1a57e8be,2108d235,c3923891
+[info] INFO  [2013-04-13 02:50:17,081] com.github.harshal.distos.Pig: 10004 Neighbors: 0d6111de,1a57e8be,2108d235,c3923891,70de70bf,3a1c105f,32bc8116,6aa0b301,e86b6882
+[info] INFO  [2013-04-13 02:50:17,081] com.github.harshal.distos.Pig: 10010 Neighbors: 32bc8116,6aa0b301,e86b6882,304d79d2,0d6111de,1a57e8be,2108d235,c3923891,70de70bf
+[info] INFO  [2013-04-13 02:50:17,081] com.github.harshal.distos.Pig: 10006 Neighbors: 2108d235,c3923891,70de70bf,3a1c105f,32bc8116,6aa0b301,e86b6882,304d79d2,0d6111de
+[info] INFO  [2013-04-13 02:50:17,081] com.github.harshal.distos.Pig: 10003 Neighbors: 304d79d2,0d6111de,1a57e8be,2108d235,c3923891,70de70bf,3a1c105f,32bc8116,6aa0b301
+[info] DEBUG [2013-04-13 02:50:17,095] com.github.harshal.distos.Pig: Election from e86b6882 -> 304d79d2, succeeded...
+[info] DEBUG [2013-04-13 02:50:17,095] com.github.harshal.distos.Pig: Election from 32bc8116 -> 6aa0b301, succeeded...
+[info] DEBUG [2013-04-13 02:50:17,095] com.github.harshal.distos.Pig: Election from 6aa0b301 -> e86b6882, succeeded...
+[info] DEBUG [2013-04-13 02:50:17,097] com.github.harshal.distos.Pig: Election from 304d79d2 -> 0d6111de, succeeded...
+[info] DEBUG [2013-04-13 02:50:17,098] com.github.harshal.distos.Pig: Election from 0d6111de -> 1a57e8be, succeeded...
+[info] DEBUG [2013-04-13 02:50:17,100] com.github.harshal.distos.Pig: Election from 1a57e8be -> 2108d235, succeeded...
+[info] DEBUG [2013-04-13 02:50:17,102] com.github.harshal.distos.Pig: Election from 2108d235 -> c3923891, succeeded...
+[info] DEBUG [2013-04-13 02:50:17,104] com.github.harshal.distos.Pig: Election from c3923891 -> 70de70bf, succeeded...
+[info] DEBUG [2013-04-13 02:50:17,106] com.github.harshal.distos.Pig: Election from 70de70bf -> 3a1c105f, succeeded...
+[info] INFO  [2013-04-13 02:50:17,107] com.github.harshal.distos.Pig: Election 1d33c08b finished: e86b6882 is the leader.
+[info] DEBUG [2013-04-13 02:50:17,108] com.github.harshal.distos.Pig: Election from 3a1c105f -> 32bc8116, succeeded...
+[info] DEBUG [2013-04-13 02:50:17,110] com.github.harshal.distos.Pig: 6aa0b301 setting leader to e86b6882
+[info] DEBUG [2013-04-13 02:50:17,113] com.github.harshal.distos.Pig: e86b6882 setting leader to e86b6882
+[info] DEBUG [2013-04-13 02:50:17,117] com.github.harshal.distos.Pig: 304d79d2 setting leader to e86b6882
+[info] DEBUG [2013-04-13 02:50:17,120] com.github.harshal.distos.Pig: 0d6111de setting leader to e86b6882
+[info] DEBUG [2013-04-13 02:50:17,123] com.github.harshal.distos.Pig: 1a57e8be setting leader to e86b6882
+[info] DEBUG [2013-04-13 02:50:17,126] com.github.harshal.distos.Pig: 2108d235 setting leader to e86b6882
+[info] DEBUG [2013-04-13 02:50:17,129] com.github.harshal.distos.Pig: c3923891 setting leader to e86b6882
+[info] DEBUG [2013-04-13 02:50:17,132] com.github.harshal.distos.Pig: 70de70bf setting leader to e86b6882
+[info] DEBUG [2013-04-13 02:50:17,135] com.github.harshal.distos.Pig: 3a1c105f setting leader to e86b6882
+[info] DEBUG [2013-04-13 02:50:17,136] com.github.harshal.distos.Pig: 32bc8116 setting leader to e86b6882
 \end{verbatim}
-
-When running the game:
-
-\begin{verbatim}
-Gathering Pigs...
-Looking up on port: 10001
-Checking alive: Position(-1)
-Looking up on port: 10002
-Checking alive: Position(-1)
-Looking up on port: 10003
-Checking alive: Position(-1)
-Looking up on port: 10004
-Checking alive: Position(-1)
-Looking up on port: 10005
-Checking alive: Position(-1)
-Looking up on port: 10006
-Checking alive: Position(-1)
-Looking up on port: 10007
-Checking alive: Position(-1)
-Looking up on port: 10008
-Checking alive: Position(-1)
-Looking up on port: 10009
-Checking alive: Position(-1)
-Looking up on port: 10010
-Checking alive: Position(-1)
-done gathering.
-Can we communicate with the first pig?: Position(-1)
-done setting mid positions
-done setting end positions
-
-  -----------------------
-  |  Initial locations  |
-  -----------------------
-
-       |                 |     |                 |        | 
- @  _  |  _  _  @  @  @  |  @  |  @  _  @  @  @  |  @  _  | 
-------------------------------------------------------------
-Time to target: 589
-
-  -----------------------
-  |  Final locations    |
-  -----------------------
-
-
-       |                 |     |                 |        | 
- @  _  |  _  _  @  @  @  |  @  |  @  _  @  @  @  |  @  _  | 
-------------------------------------------------------------
-                           XXX                                    <- TARGET
-\end{verbatim}
+\normalsize
 
 \end{document}
