@@ -428,8 +428,10 @@ class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) extends Logging {
 
     val columnPos: Seq[Int] = posVector.takeRight(numColumns)
 
-    for ((pig,pos) <- pigs.zip(posVector.take(numPigs)))
+    for ((pig,pos) <- pigs.zip(posVector.take(numPigs))){
+      pig !? pos
       world(pos) = Some(pig.port)
+    }
 
     for (pos <- columnPos)
       world(pos) = Some(COLUMN)
