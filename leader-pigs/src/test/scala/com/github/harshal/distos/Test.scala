@@ -88,6 +88,8 @@ class LeaderElectionTest extends Logging {
 
     val ge = new GameEngine(pigs, worldSizeRatio)
 
+    pigs(0) !? SetPosition(0)
+
     log.info("generating the map..")
     val world = ge.generateMap(permutFn = identity)
 
@@ -98,7 +100,7 @@ class LeaderElectionTest extends Logging {
     log.debug("statusMap: %s" format statusMap.mkString("\n"))
 
     Thread.sleep(1500)
-    
+
     assert(statusMap.size == 1)
     assert(statusMap.head._2)
 
