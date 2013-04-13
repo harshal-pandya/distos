@@ -241,7 +241,7 @@ object GameMessages {
 
   // Game Engine => Pig
   case class SetMap(map: Seq[Option[Int]])
-  case class Trajectory(x: Int, ttt:Int)
+  case class Trajectory(x: Int, ttt: Clock)
   case class Status()
   // TODO: currently, this isn't used
   case class StatusResponse(impacted: Boolean, moveTime: Option[Clock], hitTime: Option[Clock])
@@ -356,9 +356,7 @@ trait PigGameLogic extends AbstractPig with Logging {
     case Trajectory(targetPos, timeToTarget) => {
       if (amLeader) {
         flood(BirdApproaching(targetPos, clock.tick()))
-        Thread.sleep(timeToTarget)
-        clock.tick()
-        flood(BirdLanded(clock))
+        flood(BirdLanded(timeToTarget))
         flood(Status())
       }
     }
@@ -462,9 +460,10 @@ class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) extends Logging {
               |""".stripMargin)
     prettyPrintMap(world)
 
-    // random time between 100 and 1000 ms
-    val timeToTarget = rand.nextInt(800) + 200
-    println("Time to target: " + timeToTarget)
+    // random time between 3 and 8
+    val timeToTarget = Clock()
+    (1 to rand.nextInt(5) + 3) foreach { _ => timeToTarget.tick() }
+    println("Time to target: " + timeToTarget._clockValue)
 
     leader ! Trajectory(targetPos, timeToTarget)
 
@@ -592,9 +591,10 @@ object PigsRunner extends Logging {
       log.info("launching...")
       val status = ge.launch(leader)
 
-      Thread.sleep(3000)
+      Thread.sleep(1500)
       log.debug("Sending exits..")
       pigs.map(_ !? (50, Exit))
+      Constants.BASE_PORT += 100
       status
     }
     val (_,exp) = stats(statuses)
