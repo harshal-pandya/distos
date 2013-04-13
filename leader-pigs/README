@@ -2,4 +2,4 @@ This project is built and run with a tool called SBT. A ``sbt11`` script is prov
 
 The first time you run ``./sbt11`` it will will download the sbt jar.
 
-To run our program simply ``./sbt11 10 3`` for 10 pigs and pig to map ratio of 3 (aka world size of 30).
+To run our program simply ``./sbt11 "run 10 3"`` for 10 pigs and pig to map ratio of 3 (aka world size of 30). The first time all the dependencies will be downloaded which may take a couple minutes.

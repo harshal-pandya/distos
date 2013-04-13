@@ -555,7 +555,7 @@ object PigsRunner extends Logging {
 
       log.debug("Initiating an election..")
       pigs.head ! RingBasedElectionMessages.Election()
-      Thread.sleep(500)
+      Thread.sleep(1500)
 
       // Find the leader
       val leader = pigs.find(_.amLeader) match {
