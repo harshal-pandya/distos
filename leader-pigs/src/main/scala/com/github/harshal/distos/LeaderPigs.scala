@@ -378,20 +378,9 @@ trait PigGameLogic extends AbstractPig with Logging {
       }
     }
 
-    case BirdLanded(incomingClock) =>{
-      Util.simulateNetworkDelay(clock)
-      clock.setMax(incomingClock)
-      clock.tick()
-      hitTime = Some(clock.copy())
-    }
-
-    case WasHit(id,isHit) => {
-      statusMap.put(id, isHit)
-    }
-
-    case Status() => {
-      sender ! WasHit(id, impacted && checkIfHit(moveTime, hitTime))
-    }
+    case BirdLanded(incomingClock) => hitTime = Some(clock.copy())
+    case WasHit(id, isHit)         => statusMap.put(id, isHit)
+    case Status()                  => sender ! WasHit(id, impacted && checkIfHit(moveTime, hitTime))
 
     // Getters and Setters
     case GetPort()      => sender ! Port(port)
@@ -463,8 +452,7 @@ class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) extends Logging {
     prettyPrintMap(world)
 
     // random time between 3 and 8
-    val timeToTarget = Clock()
-    (1 to rand.nextInt(5) + 3) foreach { _ => timeToTarget.tick() }
+    val timeToTarget = Clock(rand.nextInt(5) + 3)
     println("Time to target: " + timeToTarget._clockValue)
 
     leader ! Trajectory(targetPos, timeToTarget)
@@ -567,14 +555,7 @@ object PigsRunner extends Logging {
 
       log.debug("Initiating an election..")
       pigs.head ! RingBasedElectionMessages.Election()
-
       Thread.sleep(500)
-      //
-      //    log.debug("Killing the leader..")
-      //    pigs.last !? Exit
-      //
-      //    log.debug("Initiating an election..")
-      //    pigs.head ! RingBasedElectionMessages.Election()
 
       // Find the leader
       val leader = pigs.find(_.amLeader) match {
