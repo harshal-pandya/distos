@@ -132,10 +132,10 @@ trait Neighbors extends AbstractPig with Logging {
 //
 // Lamport Clock
 //
-case class Clock() extends Ordered[Clock] {
-  @volatile var _clockValue: Int = 0
+case class Clock(initClockValue: Int = 0) extends Ordered[Clock] {
+  @volatile var _clockValue: Int = initClockValue
   def tick(): Clock = { _clockValue += 1; this }
-  def setMax(that: Clock) = _clockValue = scala.math.max(this._clockValue, that._clockValue)
+  def setMax(that: Clock): Clock = { _clockValue = scala.math.max(this._clockValue, that._clockValue); this }
   def copy() = { val c = new Clock; c._clockValue = _clockValue; c }
   def compare(that: Clock) = this._clockValue - that._clockValue
 }
