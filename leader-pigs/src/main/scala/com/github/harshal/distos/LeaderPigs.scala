@@ -574,7 +574,7 @@ object PigsRunner extends Logging {
       log.info("launching...")
       val status = ge.launch(leader)
 
-      Thread.sleep(1500)
+      Thread.sleep(500)
       log.debug("Sending exits..")
       pigs.map(_ !? (50, Exit))
       Constants.BASE_PORT += 100
