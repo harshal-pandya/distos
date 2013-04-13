@@ -399,11 +399,11 @@ class Pig(val port: Int) extends AbstractPig with Neighbors with RingBasedLeader
   val id  = UUID.randomUUID().toString.take(8)
 }
 
-class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) extends Logging {
+class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Double) extends Logging {
   import GameMessages._
 
   private val numPigs = pigs.size
-  private val worldSize = worldSizeRatio * numPigs
+  private val worldSize = Math.floor(worldSizeRatio * numPigs).toInt
 
   def generateMap(permutFn: Seq[Int] => Seq[Int] = rand.shuffle(_)): Array[Option[Int]] = {
 
@@ -546,7 +546,7 @@ object PigsRunner extends Logging {
 
   def main(args: Array[String]): Unit = {
     val numPigs = args(0).toInt
-    val worldSizeRatio = args(1).toInt
+    val worldSizeRatio = args(1).toDouble
     val statuses = for (i<-1 to 5) yield {
       val (pigs, ports) = startPigs(numPigs)
       setNeighborsInRingOrder(pigs, ports)
