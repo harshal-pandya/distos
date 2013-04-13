@@ -415,7 +415,7 @@ class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Int) extends Logging {
     //Generate a random permutation of the array indices
     val posVector: Seq[Int] = permutFn(0 until worldSize)
 
-    val columnPos: Seq[Int] = posVector.takeRight(numColumns)
+    val columnPos: Seq[Int] = posVector.drop(numPigs).take(numColumns)
 
     for ((pig,pos) <- pigs.zip(posVector.take(numPigs))){
       pig !? SetPosition(pos)
@@ -581,7 +581,7 @@ object PigsRunner extends Logging {
       status
     }
     val (_,exp) = stats(statuses)
-    println(exp)
+    log.info("expected # dead pigs: " + exp)
     System.exit(0)
   }
 
