@@ -51,7 +51,7 @@ object Util {
 }
 
 //
-// An `AbstractPig` is an actor with a port and
+// An `AbstractNode` is an actor with a port and
 // an empty sequence of actions to be performed on receipt
 // of messages.
 //
@@ -135,8 +135,8 @@ object NeighborMessages {
   case class GetId()
   case class Id(id: String)
 }
-trait Neighbors extends AbstractPig with Logging {
-  this: AbstractPig =>
+trait Neighbors extends AbstractNode with Logging {
+  this: AbstractNode =>
   override def actions = super.actions ++ Seq(action)
 
   import NeighborMessages._
@@ -210,11 +210,11 @@ object RingBasedElectionMessages {
 
 //
 // `RingBasedLeaderElection` is functionality that can be mixed into
-// an `AbstractPig` which performs a ring-based leader election
+// an `AbstractNode` which performs a ring-based leader election
 // when triggered by an Election() message.
 //
-trait RingBasedLeaderElection extends AbstractPig {
-  this: AbstractPig with Neighbors =>
+trait RingBasedLeaderElection extends AbstractNode {
+  this: AbstractNode with Neighbors =>
 
   import RingBasedElectionMessages._
   import NeighborMessages._
@@ -311,8 +311,8 @@ object GameMessages {
   case class BirdApproaching(position: Int, clock: Clock)
 }
 
-trait PigGameLogic extends AbstractPig with Logging {
-  this: AbstractPig with Neighbors with RingBasedLeaderElection with LamportClock =>
+trait PigGameLogic extends AbstractNode with Logging {
+  this: AbstractNode with Neighbors with RingBasedLeaderElection with LamportClock =>
   override def actions = super.actions ++ Seq(action)
 
   import GameMessages._
@@ -444,12 +444,12 @@ trait PigGameLogic extends AbstractPig with Logging {
 // Running it all.
 //
 
-class Pig(val port: Int) extends AbstractPig with Neighbors with RingBasedLeaderElection with LamportClock with PigGameLogic with Database{
+class Pig(val port: Int) extends AbstractNode with Neighbors with RingBasedLeaderElection with LamportClock with PigGameLogic with Database{
   val id  = UUID.randomUUID().toString.take(8)
   lazy val cache = buildCache
 }
 
-class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Double) extends Logging {
+class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Logging {
   import GameMessages._
 
   private val numPigs = pigs.size
