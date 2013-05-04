@@ -5,5 +5,11 @@
 *.war
 *.ear
 
+*.log
+*.out
+*.aux
+*.pdf
+*/output
+
 pigs/target
 pigs/project/target
