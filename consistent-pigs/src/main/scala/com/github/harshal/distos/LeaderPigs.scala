@@ -89,6 +89,7 @@ abstract class AbstractNode extends AbstractActor with Actor with Logging {
 // Database
 //
 object DatabaseMessages {
+  case class Register(port: Int)
   case class Update(id: String, dead: Boolean)
   case class Retrieve(id: String)
   case class Clear()
@@ -101,6 +102,8 @@ trait Database extends AbstractNode with Logging {
   
   override def actions = super.actions ++ Seq(action)
   
+  @volatile var leaders = Set.empty[AbstractActor]
+
   private val db: ConcurrentMap[String, Boolean] = new ConcurrentHashMap[String, Boolean]
   
   private val action: Any ~> Unit  = {
@@ -108,6 +111,11 @@ trait Database extends AbstractNode with Logging {
     case Retrieve(id)     => sender ! db.get(id)
     case Clear()          => { db.clear(); sender ! Ack }
     case GetSize()        => sender ! Size(db.size)
+    case Register(port)   => { 
+      leaders = leaders + select(Node("localhost", port), Symbol(port.toString))
+      log.debug("Added " + port + " as leader.")
+      sender ! Ack
+    }
   }
 }
 trait DatabaseConnection extends AbstractNode with Logging {
@@ -201,7 +209,7 @@ object RingBasedElectionMessages {
 // when triggered by an Election() message.
 //
 trait RingBasedLeaderElection extends AbstractNode {
-  this: AbstractNode with Neighbors =>
+  this: AbstractNode with Neighbors with DatabaseConnection =>
 
   import RingBasedElectionMessages._
   import NeighborMessages._
@@ -223,6 +231,8 @@ trait RingBasedLeaderElection extends AbstractNode {
     case SetLeader(remoteId) => {
       log.debug("%s setting leader to %s" format(id, remoteId))
       leader = Some(if (remoteId == id) this else neighborsById(remoteId))
+      // The leader holds the responsibility of connecting to the database.
+      if (amLeader) db !? (Constants.DB_TIMEOUT, DatabaseMessages.Register(port))
       sender ! Ack
     }
     case e: Election => {
@@ -554,6 +564,7 @@ object Constants {
   var DB_PORT = 9999 
   var BASE_PORT = 10000
   val ELECTION_TIMEOUT = 300 //ms
+  val DB_TIMEOUT       = 300 //ms
 }
 
 object PigsRunner extends Logging {
@@ -605,15 +616,15 @@ object PigsRunner extends Logging {
  
       log.debug("Sending DebugNeighbors..")
       pigs.map(_ ! NeighborMessages.DebugNeighbors)
+      
+      log.debug("Starting the database..")
+      startDb()
 
       log.debug("Initiating an election in set 1..")
       pigs1.head ! RingBasedElectionMessages.Election()
       log.debug("Initiating an election in set 2..")
       pigs2.head ! RingBasedElectionMessages.Election()
       Thread.sleep(1500)
-      
-      log.debug("Starting the database..")
-      startDb()
 
       // Find the two leaders
       val leaders = pigs.filter(_.amLeader).withEffect(x => assert(x.size == 2))
