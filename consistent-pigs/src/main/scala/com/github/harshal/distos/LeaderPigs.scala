@@ -432,7 +432,7 @@ class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Double) extends Logging
   import GameMessages._
 
   private val numPigs = pigs.size
-  private val worldSize = Math.floor(worldSizeRatio * numPigs).toInt
+  private val worldSize = math.floor(worldSizeRatio * numPigs).toInt
 
   def generateMap(permutFn: Seq[Int] => Seq[Int] = rand.shuffle(_)): Array[Option[Int]] = {
 
@@ -560,14 +560,17 @@ object PigsRunner extends Logging {
 
   def startPigs(numPigs: Int): (Seq[Pig], Seq[Int]) = {
     val ports = (1 to numPigs).map(_ + BASE_PORT).toIndexedSeq
-    val pigs  = (for (port <- ports) yield
+    val pigs  = ports.map(port => 
       new Pig(port)
         .withEffect(_.start())
         .withEffect(_ => log.info("Started pig on port: " + port))
-      ).toSeq
+    )
 
     pigs -> ports
   }
+  
+  def partitionPigs(pigs: Seq[Pig], ids: Seq[Int]): Seq[Map[Pig, Int]] =
+    pigs.zip(ids).grouped(math.ceil(pigs.size / 2.0).toInt).map(_.toMap).toSeq
 
   def setNeighborsInRingOrder(pigs: Seq[Pig], ids: Seq[Int]): Unit =
     for ((pig, neighbors) <- (pigs.zip(Stream.continually(ids).flatten.sliding(ids.size).map(_.drop(1).toArray.toSeq).toSeq)))
@@ -578,19 +581,27 @@ object PigsRunner extends Logging {
     val worldSizeRatio = args(1).toDouble
     val statuses = for (i<-1 to 5) yield {
       val (pigs, ports) = startPigs(numPigs)
-      setNeighborsInRingOrder(pigs, ports)
+      
+      val part = partitionPigs(pigs, ports).withEffect(x => assert(x.size == 2))
+      val (pigs1, ports1) = (part(0).keys.toSeq, part(0).values.toSeq)
+      val (pigs2, ports2) = (part(1).keys.toSeq, part(1).values.toSeq)
+          
+      setNeighborsInRingOrder(pigs1, ports1)
+      //setNeighborsInRingOrder(pigs2, ports2)
+      
       log.debug("Sending DebugNeighbors..")
       pigs.map(_ ! NeighborMessages.DebugNeighbors)
 
-      log.debug("Initiating an election..")
-      pigs.head ! RingBasedElectionMessages.Election()
+      log.debug("Initiating an election in set 1..")
+      //pigs1.head ! RingBasedElectionMessages.Election()
+      log.debug("Initiating an election in set 2..")
+      //pigs2.head ! RingBasedElectionMessages.Election()
       Thread.sleep(1500)
 
-      // Find the leader
-      val leader = pigs.find(_.amLeader) match {
-        case Some(pig) => pig
-        case None      => throw new Exception("Runner could not find the leader.")
-      }
+      // Find the two leaders
+      val leaders = pigs.filter(_.amLeader).withEffect(x => assert(x.size == 2))
+      
+      val leader = leaders(0)
 
       //
       // Start the game.
