@@ -9,7 +9,7 @@ import scala.actors._
 import scala.actors.Actor._
 import scala.actors.remote._
 import scala.actors.remote.RemoteActor._
-import scala.collection.mutable
+import collection.mutable
 import scala.collection.mutable.{ArrayBuffer, ConcurrentMap, LinkedHashMap}
 import scala.collection.JavaConversions._
 import scala.util.Random
@@ -51,17 +51,18 @@ object Util {
 }
 
 //
-// An `AbstractNode` is an actor with a port and
+// An `AbstractPig` is an actor with a port and
 // an empty sequence of actions to be performed on receipt
 // of messages.
 //
 abstract class AbstractNode extends AbstractActor with Actor with Logging {
   //process id for this actor/pig
-  val id:String = UUID.randomUUID().toString.take(8)
+  val id:String
 
   // The port on which this pig will run.
   val port: Int
 
+  val cache:mutable.HashMap[String,Boolean]
   // The behaviors this pig has. 
   //[This is to be extended by various traits;
   // see `LeaderElection` for an example.]
@@ -89,21 +90,25 @@ abstract class AbstractNode extends AbstractActor with Actor with Logging {
 // Database
 //
 object DatabaseMessages {
-  case class Register(port: Int)
   case class Update(id: String, dead: Boolean)
   case class Retrieve(id: String)
   case class Clear()
   case class GetSize()
   case class Size(size: Int)
+
 }
-trait Database extends AbstractNode with Logging {
-  this: AbstractNode =>
+trait Database extends AbstractPig with Logging {
+  this: AbstractPig
   import DatabaseMessages._
-  
+
+  def buildCache = {
+    val map = mutable.HashMap[String,Boolean]()
+    map++=db
+    map
+  }
+
   override def actions = super.actions ++ Seq(action)
   
-  @volatile var leaders = Set.empty[AbstractActor]
-
   private val db: ConcurrentMap[String, Boolean] = new ConcurrentHashMap[String, Boolean]
   
   private val action: Any ~> Unit  = {
@@ -111,17 +116,15 @@ trait Database extends AbstractNode with Logging {
     case Retrieve(id)     => sender ! db.get(id)
     case Clear()          => { db.clear(); sender ! Ack }
     case GetSize()        => sender ! Size(db.size)
-    case Register(port)   => { 
-      leaders = leaders + select(Node("localhost", port), Symbol(port.toString))
-      log.debug("Added " + port + " as leader.")
-      sender ! Ack
-    }
   }
 }
-trait DatabaseConnection extends AbstractNode with Logging {
-  this: AbstractNode =>
-  lazy val db = { log.debug("" + port + " initiating db connection."); select(Node("localhost", Constants.DB_PORT), Symbol(Constants.DB_PORT.toString)) }
+
+class LocalCache(private val cache:mutable.HashMap[String,Boolean]){
+  def apply(id:String,dead:Boolean) = cache.update(id,dead)
+  def apply(id:String) = cache(id)
 }
+
+
 
 //
 // Neighbors
@@ -132,8 +135,8 @@ object NeighborMessages {
   case class GetId()
   case class Id(id: String)
 }
-trait Neighbors extends AbstractNode with Logging {
-  this: AbstractNode =>
+trait Neighbors extends AbstractPig with Logging {
+  this: AbstractPig =>
   override def actions = super.actions ++ Seq(action)
 
   import NeighborMessages._
@@ -170,6 +173,8 @@ trait Neighbors extends AbstractNode with Logging {
 
 }
 
+
+
 //
 // Lamport Clock
 //
@@ -205,11 +210,11 @@ object RingBasedElectionMessages {
 
 //
 // `RingBasedLeaderElection` is functionality that can be mixed into
-// an `AbstractNode` which performs a ring-based leader election
+// an `AbstractPig` which performs a ring-based leader election
 // when triggered by an Election() message.
 //
-trait RingBasedLeaderElection extends AbstractNode {
-  this: AbstractNode with Neighbors with DatabaseConnection =>
+trait RingBasedLeaderElection extends AbstractPig {
+  this: AbstractPig with Neighbors =>
 
   import RingBasedElectionMessages._
   import NeighborMessages._
@@ -231,8 +236,6 @@ trait RingBasedLeaderElection extends AbstractNode {
     case SetLeader(remoteId) => {
       log.debug("%s setting leader to %s" format(id, remoteId))
       leader = Some(if (remoteId == id) this else neighborsById(remoteId))
-      // The leader holds the responsibility of connecting to the database.
-      if (amLeader) db !? (Constants.DB_TIMEOUT, DatabaseMessages.Register(port))
       sender ! Ack
     }
     case e: Election => {
@@ -300,14 +303,16 @@ object GameMessages {
 
   case class GetStatusMap()
 
+  case class SyncToDb()
+
   type GameMap = Seq[Option[Int]]
 
   // Pig => Pig
   case class BirdApproaching(position: Int, clock: Clock)
 }
 
-trait PigGameLogic extends AbstractNode with Logging {
-  this: AbstractNode with Neighbors with RingBasedLeaderElection with LamportClock =>
+trait PigGameLogic extends AbstractPig with Logging {
+  this: AbstractPig with Neighbors with RingBasedLeaderElection with LamportClock =>
   override def actions = super.actions ++ Seq(action)
 
   import GameMessages._
@@ -430,6 +435,7 @@ trait PigGameLogic extends AbstractNode with Logging {
     case GetPosition()  => sender ! Position(currentPos)
     case SetPosition(x) => { currentPos = x; sender ! Ack }
     case GetStatusMap() => sender ! Statuses(statusMap)
+
   }
 }
 
@@ -438,15 +444,16 @@ trait PigGameLogic extends AbstractNode with Logging {
 // Running it all.
 //
 
-class DB(val port: Int) extends AbstractNode with Neighbors with Database
+class Pig(val port: Int) extends AbstractPig with Neighbors with RingBasedLeaderElection with LamportClock with PigGameLogic with Database{
+  val id  = UUID.randomUUID().toString.take(8)
+  lazy val cache = buildCache
+}
 
-class Pig(val port: Int) extends AbstractNode with Neighbors with RingBasedLeaderElection with LamportClock with PigGameLogic with DatabaseConnection
-
-class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Logging {
+class GameEngine(pigs: Seq[AbstractPig], worldSizeRatio: Double) extends Logging {
   import GameMessages._
 
   private val numPigs = pigs.size
-  private val worldSize = math.floor(worldSizeRatio * numPigs).toInt
+  private val worldSize = Math.floor(worldSizeRatio * numPigs).toInt
 
   def generateMap(permutFn: Seq[Int] => Seq[Int] = rand.shuffle(_)): Array[Option[Int]] = {
 
@@ -562,10 +569,8 @@ class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Loggin
 }
 
 object Constants {
-  var DB_PORT = 9999 
   var BASE_PORT = 10000
   val ELECTION_TIMEOUT = 300 //ms
-  val DB_TIMEOUT       = 300 //ms
 }
 
 object PigsRunner extends Logging {
@@ -577,54 +582,32 @@ object PigsRunner extends Logging {
 
   def startPigs(numPigs: Int): (Seq[Pig], Seq[Int]) = {
     val ports = (1 to numPigs).map(_ + BASE_PORT).toIndexedSeq
-    val pigs  = ports.map(port => 
+    val pigs  = (for (port <- ports) yield
       new Pig(port)
         .withEffect(_.start())
         .withEffect(_ => log.info("Started pig on port: " + port))
-    )
+      ).toSeq
 
     pigs -> ports
   }
-  
-  def partitionPigs(pigs: Seq[Pig], ids: Seq[Int]): Seq[Seq[(Pig, Int)]] =
-    pigs.zip(ids).grouped(math.ceil(pigs.size / 2.0).toInt).toSeq
 
-  def setNeighborsInRingOrder(pigs: Seq[Pig], ids: Seq[Int]): Unit = {
-    log.debug("Ring arranger pigs: %s" format (pigs.map(_.port).mkString(", "))) 
-    log.debug("Ring arranger  ids: %s" format (ids.mkString(", "))) 
+  def setNeighborsInRingOrder(pigs: Seq[Pig], ids: Seq[Int]): Unit =
     for ((pig, neighbors) <- (pigs.zip(Stream.continually(ids).flatten.sliding(ids.size).map(_.drop(1).toArray.toSeq).toSeq)))
       pig !? NeighborMessages.SetNeighbors(neighbors)
-  }
-  
-  def startDb(): DB =
-    new DB(Constants.DB_PORT).withEffect { db => 
-      db.start()
-      log.info("Started pig on port: " + Constants.DB_PORT)
-    }
+
+
 
   def main(args: Array[String]): Unit = {
     val numPigs = args(0).toInt
     val worldSizeRatio = args(1).toDouble
     val statuses = for (i<-1 to 5) yield {
       val (pigs, ports) = startPigs(numPigs)
-
-      val part = partitionPigs(pigs, ports).withEffect(x => assert(x.size == 2))
-      val (pigs1, ports1) = (part(0).map(_._1), part(0).map(_._2))
-      val (pigs2, ports2) = (part(1).map(_._1), part(1).map(_._2))
- 
-      setNeighborsInRingOrder(pigs1, ports1)
-      setNeighborsInRingOrder(pigs2, ports2)
- 
+      setNeighborsInRingOrder(pigs, ports)
       log.debug("Sending DebugNeighbors..")
       pigs.map(_ ! NeighborMessages.DebugNeighbors)
-      
-      log.debug("Starting the database..")
-      startDb()
 
-      log.debug("Initiating an election in set 1..")
-      pigs1.head ! RingBasedElectionMessages.Election()
-      log.debug("Initiating an election in set 2..")
-      pigs2.head ! RingBasedElectionMessages.Election()
+      log.debug("Initiating an election..")
+      pigs.head ! RingBasedElectionMessages.Election()
       Thread.sleep(1500)
 
       // Find the two leaders
@@ -660,5 +643,6 @@ object PigsRunner extends Logging {
     val expectation = deadPigs.toDouble / numRounds
     (deadPigs, expectation)
   }
+
 
 }
