@@ -1,16 +1,19 @@
 package com.github.harshal.distos
 
-import com.codahale.logula.Logging
 import org.apache.log4j.Level
+import com.codahale.logula.Logging
+
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import scala.actors._
 import scala.actors.Actor._
 import scala.actors.remote._
 import scala.actors.remote.RemoteActor._
-import collection.mutable.{ArrayBuffer, LinkedHashMap}
+import scala.collection.mutable
+import scala.collection.mutable.{ArrayBuffer, ConcurrentMap, LinkedHashMap}
+import scala.collection.JavaConversions._
 import scala.util.Random
 import Util._
-import collection.mutable
 
 // Various, general utilities and conveniences used in the code.
 object Util {
@@ -83,6 +86,32 @@ abstract class AbstractPig extends AbstractActor with Actor with Logging {
 }
 
 //
+// Database
+//
+object DatabaseMessages {
+  case class Update(id: String, dead: Boolean)
+  case class Retrieve(id: String)
+  case class Clear()
+  case class GetSize()
+  case class Size(size: Int)
+}
+trait Database extends AbstractPig with Logging {
+  this: AbstractPig
+  import DatabaseMessages._
+  
+  override def actions = super.actions ++ Seq(action)
+  
+  private val db: ConcurrentMap[String, Boolean] = new ConcurrentHashMap[String, Boolean]
+  
+  private val action: Any ~> Unit  = {
+    case Update(id, dead) => sender ! db.update(id, dead)
+    case Retrieve(id)     => sender ! db.get(id)
+    case Clear()          => { db.clear(); sender ! Ack }
+    case GetSize()        => sender ! Size(db.size)
+  }
+}
+
+//
 // Neighbors
 //
 object NeighborMessages {
@@ -103,7 +132,7 @@ trait Neighbors extends AbstractPig with Logging {
   @volatile var neighborsById:   LinkedHashMap[String, AbstractActor] = new LinkedHashMap()
 
   private val action: Any ~> Unit  = {
-    case n: SetNeighbors => { log.debug("" + port + " recieved neighbor list: " + n); setNeighbors(n); sender ! Ack }
+    case n: SetNeighbors => { log.debug("" + port + " received neighbor list: " + n); setNeighbors(n); sender ! Ack }
     case    DebugNeighbors => { log.info("" + port + " Neighbors: " + neighborsById.keys.mkString(",")) }
     case GetId() => sender ! Id(id)
   }
@@ -580,16 +609,18 @@ object PigsRunner extends Logging {
       Constants.BASE_PORT += 100
       status
     }
+    
     val (_,exp) = stats(statuses)
     log.info("expected # dead pigs: " + exp)
     System.exit(0)
+    
   }
 
-  def stats(maps: Seq[Map[String,Boolean]])={
+  def stats(maps: Seq[Map[String,Boolean]]) = {
     val deadPigs = maps.map(_.filter(_._2).size).sum
-    val numrounds = maps.length
-    val expectation = deadPigs.toDouble / numrounds
-    (deadPigs,expectation)
+    val numRounds = maps.length
+    val expectation = deadPigs.toDouble / numRounds
+    (deadPigs, expectation)
   }
 
 }
