@@ -475,7 +475,7 @@ class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Loggin
 
   def launch(
       targetPos: Int,
-      leader   : AbstractNode,
+      leaders  : Seq[Option[AbstractNode]],
       pigs     : Seq[AbstractNode],
       world    : Seq[Option[Int]],
       exit     : Boolean = true): Map[String, Boolean] = {
@@ -498,20 +498,21 @@ class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Loggin
     val timeToTarget = Clock(rand.nextInt(5) + 3)
     println("Time to target: " + timeToTarget._clockValue)
 
-    leader ! Trajectory(targetPos, timeToTarget)
+    for (leader <- leaders.flatten)
+      leader ! Trajectory(targetPos, timeToTarget)
 
     Thread.sleep(2000)
 
-    (leader !? GetStatusMap()) match { 
+    (leaders.flatten.head !? GetStatusMap()) match { 
       case Statuses(map) => map.toMap
       case _ => Map()
     }
   }
   
-  def launch(leader:Pig): Map[String, Boolean] = {
+  def launch(leaders: Seq[Option[Pig]]): Map[String, Boolean] = {
     val world = generateMap()
     val target = pickTarget
-    launch(target, leader, pigs, world, exit = false)
+    launch(target, leaders, pigs, world, exit = false)
     //prettyPrint(target, launch(target, pigs, world, exit = false), world)
   }
 
@@ -627,10 +628,8 @@ object PigsRunner extends Logging {
       Thread.sleep(1500)
 
       // Find the two leaders
-      val leaders = pigs.filter(_.amLeader).withEffect(x => assert(x.size == 2))
+      val leaders = pigs.filter(_.amLeader).map(x => Some(x)).withEffect(x => assert(x.size == 2))
       
-      val leader = leaders(0)
-
       //
       // Start the game.
       //
@@ -640,7 +639,7 @@ object PigsRunner extends Logging {
       ge.generateMap()
 
       log.info("launching...")
-      val status = ge.launch(leader)
+      val status = ge.launch(leaders)
 
       Thread.sleep(500)
       log.debug("Sending exits..")
