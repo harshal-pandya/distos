@@ -62,7 +62,6 @@ abstract class AbstractNode extends AbstractActor with Actor with Logging {
   // The port on which this pig will run.
   val port: Int
 
-  val cache:mutable.HashMap[String,Boolean]
   // The behaviors this pig has. 
   //[This is to be extended by various traits;
   // see `LeaderElection` for an example.]
@@ -96,7 +95,6 @@ object DatabaseMessages {
   case class Clear()
   case class GetSize()
   case class Size(size: Int)
-
 }
 trait Database extends AbstractNode with Logging {
   this: AbstractNode
@@ -205,6 +203,25 @@ trait LamportClock { val clock: Clock = new Clock }
 // Leader Election
 //
 
+object SecondaryLeaderMessages {
+  case class SecondaryLeader(port: Int)
+}
+trait SecondaryLeader extends AbstractNode {
+  this: AbstractNode =>
+  import SecondaryLeaderMessages._
+  override def actions = super.actions ++ Seq(action)
+  
+  @volatile var secondaryLeader: Option[AbstractActor] = None
+    
+  private val action: Any ~> Unit  = {
+    case SecondaryLeader(port) => {
+      secondaryLeader = Some(select(Node("localhost", port), Symbol(port.toString)))
+      log.debug("Leader (%s) set secondary leader to: %s" format (this.port, port))
+      sender ! Ack
+    }
+  }
+}
+
 // Messages required by the `RingBasedLeaderElection` trait.
 object RingBasedElectionMessages {
 
@@ -220,7 +237,6 @@ object RingBasedElectionMessages {
   case class WhoIsLeader()
   case class LeaderId(id: Option[String])
 }
-
 //
 // `RingBasedLeaderElection` is functionality that can be mixed into
 // an `AbstractNode` which performs a ring-based leader election
@@ -461,15 +477,15 @@ trait PigGameLogic extends AbstractNode with Logging {
 
 class DB(val port: Int) extends AbstractNode with Neighbors with Database
 
-class Pig(val port: Int) extends AbstractNode with Neighbors with RingBasedLeaderElection with LamportClock with PigGameLogic with DatabaseConnection {
-  lazy val cache = buildCache // TODO: fix this... pigs can't inherit database
+class Pig(val port: Int) extends AbstractNode with Neighbors with RingBasedLeaderElection with LamportClock with PigGameLogic with DatabaseConnection with SecondaryLeader {
+  lazy val cache = () //buildCache // TODO: fix this... pigs can't inherit database
 }
 
 class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Logging {
   import GameMessages._
 
   private val numPigs = pigs.size
-  private val worldSize = Math.floor(worldSizeRatio * numPigs).toInt
+  private val worldSize = math.floor(worldSizeRatio * numPigs).toInt
 
   def generateMap(permutFn: Seq[Int] => Seq[Int] = rand.shuffle(_)): Array[Option[Int]] = {
 
@@ -655,6 +671,10 @@ object PigsRunner extends Logging {
       // Find the two leaders
       val leaders = pigs.filter(_.amLeader).map(x => Some(x)).withEffect(x => assert(x.size == 2))
       
+      // Introduce the leaders:
+      leaders(0).get !? SecondaryLeaderMessages.SecondaryLeader(leaders(1).get.port)
+      leaders(1).get !? SecondaryLeaderMessages.SecondaryLeader(leaders(0).get.port)
+   
       //
       // Start the game.
       //
