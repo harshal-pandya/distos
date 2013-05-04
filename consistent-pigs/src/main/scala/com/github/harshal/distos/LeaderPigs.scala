@@ -63,7 +63,8 @@ abstract class AbstractNode extends AbstractActor with Actor with Logging {
   val port: Int
 
   val cache:mutable.HashMap[String,Boolean]
-  // The behaviors this pig has. 
+  var buffer:mutable.HashMap[String,Boolean]
+  // The behaviors this pig has.
   //[This is to be extended by various traits;
   // see `LeaderElection` for an example.]
   def actions: Seq[Any ~> Unit] = Seq(defaultActions)
@@ -90,15 +91,15 @@ abstract class AbstractNode extends AbstractActor with Actor with Logging {
 // Database
 //
 object DatabaseMessages {
-  case class Update(id: String, dead: Boolean)
+  case class Update(buffer:mutable.HashMap[String,Boolean])
   case class Retrieve(id: String)
   case class Clear()
   case class GetSize()
   case class Size(size: Int)
 
 }
-trait Database extends AbstractPig with Logging {
-  this: AbstractPig
+trait Database extends AbstractNode with Logging {
+  this: AbstractNode
   import DatabaseMessages._
 
   def buildCache = {
@@ -112,7 +113,10 @@ trait Database extends AbstractPig with Logging {
   private val db: ConcurrentMap[String, Boolean] = new ConcurrentHashMap[String, Boolean]
   
   private val action: Any ~> Unit  = {
-    case Update(id, dead) => sender ! db.update(id, dead)
+    case Update(buffer) => {
+      buffer.foreach(kv=>db.update(kv._1, kv._2))
+
+    }
     case Retrieve(id)     => sender ! db.get(id)
     case Clear()          => { db.clear(); sender ! Ack }
     case GetSize()        => sender ! Size(db.size)
@@ -397,6 +401,11 @@ trait PigGameLogic extends AbstractNode with Logging {
     }
   }
 
+  def updateDatabase(buffer:mutable.HashMap[String,Boolean]){
+    buffer
+
+  }
+
   private val action: Any ~> Unit = {
 
     case SetMap(map) => { gameMap = map; sender ! Ack }
@@ -405,7 +414,9 @@ trait PigGameLogic extends AbstractNode with Logging {
       if (amLeader) {
         flood(BirdApproaching(targetPos, clock.tick()))
         flood(BirdLanded(timeToTarget))
+        buffer=cache.clone()
         flood(Status())
+        updateDatabase
       }
     }
 
@@ -427,7 +438,7 @@ trait PigGameLogic extends AbstractNode with Logging {
     }
 
     case BirdLanded(incomingClock) => hitTime = Some(clock.copy())
-    case WasHit(id, isHit)         => statusMap.put(id, isHit)
+    case WasHit(id, isHit)         => buffer.put(id, isHit)  //update cache
     case Status()                  => sender ! WasHit(id, impacted && checkIfHit(moveTime, hitTime))
 
     // Getters and Setters
@@ -435,7 +446,10 @@ trait PigGameLogic extends AbstractNode with Logging {
     case GetPosition()  => sender ! Position(currentPos)
     case SetPosition(x) => { currentPos = x; sender ! Ack }
     case GetStatusMap() => sender ! Statuses(statusMap)
-
+    case DatabasePush(updates) => {
+      updates.foreach(kv=>cache.update(kv._1,kv._2))
+      sender ! Ack
+    }
   }
 }
 
