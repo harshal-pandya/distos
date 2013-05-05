@@ -14,6 +14,7 @@ import scala.collection.mutable.{ArrayBuffer, ConcurrentMap, LinkedHashMap}
 import scala.collection.JavaConversions._
 import scala.util.Random
 import Util._
+import com.github.harshal.distos.DatabaseMessages.Update
 
 // Various, general utilities and conveniences used in the code.
 object Util {
@@ -57,13 +58,10 @@ object Util {
 //
 abstract class AbstractNode extends AbstractActor with Actor with Logging {
   //process id for this actor/pig
-  val id:String
+  val id:String = UUID.randomUUID().toString.take(8)
 
   // The port on which this pig will run.
   val port: Int
-
-  val cache:mutable.HashMap[String,Boolean]
-  var buffer:mutable.HashMap[String,Boolean]
   // The behaviors this pig has.
   //[This is to be extended by various traits;
   // see `LeaderElection` for an example.]
@@ -91,36 +89,49 @@ abstract class AbstractNode extends AbstractActor with Actor with Logging {
 // Database
 //
 object DatabaseMessages {
-  case class Update(buffer:mutable.HashMap[String,Boolean])
+  case class Register(port: Int)
+  case class Update(port:Int,buffer:mutable.HashMap[Int,Boolean])
   case class Retrieve(id: String)
   case class Clear()
   case class GetSize()
   case class Size(size: Int)
-
+  case class GetDBCopy()
+  case class DBCopy(map:mutable.HashMap[Int,Boolean])
 }
 trait Database extends AbstractNode with Logging {
   this: AbstractNode
   import DatabaseMessages._
 
-  def buildCache = {
-    val map = mutable.HashMap[String,Boolean]()
-    map++=db
-    map
-  }
+  def initMap(ports: Seq[Int]) = ports.foreach(p => db.put(p, true))
 
   override def actions = super.actions ++ Seq(action)
   
-  private val db: ConcurrentMap[String, Boolean] = new ConcurrentHashMap[String, Boolean]
+  @volatile var leaders = Set.empty[AbstractActor]
+  
+  val db: ConcurrentMap[Int, Boolean] = new ConcurrentHashMap[Int, Boolean]
   
   private val action: Any ~> Unit  = {
-    case Update(buffer) => {
+    case Update(port,buffer) => {
       buffer.foreach(kv=>db.update(kv._1, kv._2))
-
+      val other = (leaders-select(Node("localhost", port), Symbol(port.toString))).head
+      other !? GameMessages.DatabasePush(buffer)
+      sender ! Ack
     }
     case Retrieve(id)     => sender ! db.get(id)
     case Clear()          => { db.clear(); sender ! Ack }
     case GetSize()        => sender ! Size(db.size)
+    case Register(port)   => { 
+      leaders = leaders + select(Node("localhost", port), Symbol(port.toString))
+      log.debug("Added " + port + " as leader.")
+      sender ! Ack
+    }
+    case GetDBCopy() => sender ! DBCopy(mutable.HashMap[Int,Boolean](db.toSeq:_*))
   }
+}
+
+trait DatabaseConnection extends AbstractNode with Logging {
+  this: AbstractNode =>
+  lazy val db = { log.debug("" + port + " initiating db connection."); select(Node("localhost", Constants.DB_PORT), Symbol(Constants.DB_PORT.toString)) }
 }
 
 class LocalCache(private val cache:mutable.HashMap[String,Boolean]){
@@ -218,7 +229,7 @@ object RingBasedElectionMessages {
 // when triggered by an Election() message.
 //
 trait RingBasedLeaderElection extends AbstractNode {
-  this: AbstractNode with Neighbors =>
+  this: AbstractNode with Neighbors with DatabaseConnection =>
 
   import RingBasedElectionMessages._
   import NeighborMessages._
@@ -240,6 +251,8 @@ trait RingBasedLeaderElection extends AbstractNode {
     case SetLeader(remoteId) => {
       log.debug("%s setting leader to %s" format(id, remoteId))
       leader = Some(if (remoteId == id) this else neighborsById(remoteId))
+      // The leader holds the responsibility of connecting to the database.
+      if (amLeader) db !? (Constants.DB_TIMEOUT, DatabaseMessages.Register(port))
       sender ! Ack
     }
     case e: Election => {
@@ -301,13 +314,13 @@ object GameMessages {
   case class Position(x: Int)
   case class GetPort()
   case class Port(x: Int)
-  case class Statuses(map: mutable.HashMap[String,Boolean])
+  case class Statuses(map: mutable.HashMap[Int,Boolean])
   // Pig => Game Engine
-  case class WasHit(id:String,status: Boolean)
+  case class WasHit(port:Int,status: Boolean)
 
   case class GetStatusMap()
 
-  case class SyncToDb()
+  case class DatabasePush(updates:mutable.HashMap[Int,Boolean])
 
   type GameMap = Seq[Option[Int]]
 
@@ -316,18 +329,21 @@ object GameMessages {
 }
 
 trait PigGameLogic extends AbstractNode with Logging {
-  this: AbstractNode with Neighbors with RingBasedLeaderElection with LamportClock =>
+  this: AbstractNode with Neighbors with RingBasedLeaderElection with LamportClock with DatabaseConnection=>
   override def actions = super.actions ++ Seq(action)
 
   import GameMessages._
-
+  import DatabaseMessages._
   var currentPos:Int = -1
   var moveTime: Option[Clock] = None
   var hitTime: Option[Clock] = None
   var impacted: Boolean = false
   var gameMap: GameMessages.GameMap = null
-  val statusMap = mutable.HashMap[String,Boolean]()
-
+  var buffer:mutable.HashMap[Int,Boolean] = mutable.HashMap[Int,Boolean]()
+  lazy val cache = (db !? DatabaseMessages.GetDBCopy()) match {
+    case DBCopy(map) => map
+    case _ => !!!
+  }
   /**
    * To check if next position is beyond the map boundary
    * @param pos
@@ -401,9 +417,8 @@ trait PigGameLogic extends AbstractNode with Logging {
     }
   }
 
-  def updateDatabase(buffer:mutable.HashMap[String,Boolean]){
-    buffer
-
+  def commit(buffer:mutable.HashMap[Int,Boolean]){
+    buffer.foreach(kv=>cache.update(kv._1,kv._2))
   }
 
   private val action: Any ~> Unit = {
@@ -414,9 +429,10 @@ trait PigGameLogic extends AbstractNode with Logging {
       if (amLeader) {
         flood(BirdApproaching(targetPos, clock.tick()))
         flood(BirdLanded(timeToTarget))
-        buffer=cache.clone()
+        buffer = cache.clone() -- neighborsByPort.keys
         flood(Status())
-        updateDatabase
+        db !? Update(port,buffer)
+        commit(buffer)
       }
     }
 
@@ -438,14 +454,14 @@ trait PigGameLogic extends AbstractNode with Logging {
     }
 
     case BirdLanded(incomingClock) => hitTime = Some(clock.copy())
-    case WasHit(id, isHit)         => buffer.put(id, isHit)  //update cache
-    case Status()                  => sender ! WasHit(id, impacted && checkIfHit(moveTime, hitTime))
+    case WasHit(port, isHit)         => buffer.put(port, isHit)  //update cache
+    case Status()                  => sender ! WasHit(port, impacted && checkIfHit(moveTime, hitTime))
 
     // Getters and Setters
     case GetPort()      => sender ! Port(port)
     case GetPosition()  => sender ! Position(currentPos)
     case SetPosition(x) => { currentPos = x; sender ! Ack }
-    case GetStatusMap() => sender ! Statuses(statusMap)
+    case GetStatusMap() => sender ! Statuses(cache)
     case DatabasePush(updates) => {
       updates.foreach(kv=>cache.update(kv._1,kv._2))
       sender ! Ack
@@ -458,9 +474,10 @@ trait PigGameLogic extends AbstractNode with Logging {
 // Running it all.
 //
 
-class Pig(val port: Int) extends AbstractNode with Neighbors with RingBasedLeaderElection with LamportClock with PigGameLogic with Database{
-  val id  = UUID.randomUUID().toString.take(8)
-  lazy val cache = buildCache
+class DB(val port: Int) extends AbstractNode with Neighbors with Database
+
+class Pig(val port: Int) extends AbstractNode with Neighbors with RingBasedLeaderElection with LamportClock with PigGameLogic with DatabaseConnection {
+//  lazy val cache = buildCache // TODO: fix this... pigs can't inherit database
 }
 
 class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Logging {
@@ -584,7 +601,9 @@ class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Loggin
 
 object Constants {
   var BASE_PORT = 10000
+  var DB_PORT = 9999 
   val ELECTION_TIMEOUT = 300 //ms
+  val DB_TIMEOUT = 300 //ms
 }
 
 object PigsRunner extends Logging {
@@ -596,32 +615,57 @@ object PigsRunner extends Logging {
 
   def startPigs(numPigs: Int): (Seq[Pig], Seq[Int]) = {
     val ports = (1 to numPigs).map(_ + BASE_PORT).toIndexedSeq
-    val pigs  = (for (port <- ports) yield
+    val pigs  = ports.map(port =>
       new Pig(port)
         .withEffect(_.start())
         .withEffect(_ => log.info("Started pig on port: " + port))
-      ).toSeq
+    ).toSeq
 
     pigs -> ports
   }
 
-  def setNeighborsInRingOrder(pigs: Seq[Pig], ids: Seq[Int]): Unit =
+  def partitionPigs(pigs: Seq[Pig], ids: Seq[Int]): Seq[Seq[(Pig, Int)]] =
+    pigs.zip(ids).grouped(math.ceil(pigs.size / 2.0).toInt).toSeq
+ 
+  def setNeighborsInRingOrder(pigs: Seq[Pig], ids: Seq[Int]): Unit = {
+    log.debug("Ring arranger pigs: %s" format (pigs.map(_.port).mkString(", "))) 
+    log.debug("Ring arranger  ids: %s" format (ids.mkString(", ")))  
     for ((pig, neighbors) <- (pigs.zip(Stream.continually(ids).flatten.sliding(ids.size).map(_.drop(1).toArray.toSeq).toSeq)))
       pig !? NeighborMessages.SetNeighbors(neighbors)
+  }
+  
+  def startDb(ports:Seq[Int]): DB =
+    new DB(Constants.DB_PORT).withEffect { db => 
+      db.start()
 
+      log.info("Started pig on port: " + Constants.DB_PORT)
+    }
 
-
+      
   def main(args: Array[String]): Unit = {
     val numPigs = args(0).toInt
     val worldSizeRatio = args(1).toDouble
     val statuses = for (i<-1 to 5) yield {
       val (pigs, ports) = startPigs(numPigs)
-      setNeighborsInRingOrder(pigs, ports)
+      
+      val part = partitionPigs(pigs, ports).withEffect(x => assert(x.size == 2))
+      val (pigs1, ports1) = (part(0).map(_._1), part(0).map(_._2))
+      val (pigs2, ports2) = (part(1).map(_._1), part(1).map(_._2))
+      
+      log.debug("Starting the database..")
+      startDb(ports)
+
+      setNeighborsInRingOrder(pigs1, ports1)
+      setNeighborsInRingOrder(pigs2, ports2)
+      
       log.debug("Sending DebugNeighbors..")
       pigs.map(_ ! NeighborMessages.DebugNeighbors)
-
-      log.debug("Initiating an election..")
-      pigs.head ! RingBasedElectionMessages.Election()
+ 
+      log.debug("Initiating an election in set 1..")
+      pigs1.head ! RingBasedElectionMessages.Election()
+      log.debug("Initiating an election in set 2..")
+      pigs2.head ! RingBasedElectionMessages.Election()
+      
       Thread.sleep(1500)
 
       // Find the two leaders
@@ -633,12 +677,19 @@ object PigsRunner extends Logging {
       val ge = new GameEngine(pigs, worldSizeRatio)
 
       log.info("generating the map..")
-      ge.generateMap()
-
+      val world = ge.generateMap()
+      val target = ge.pickTarget
       log.info("launching...")
-      val status = ge.launch(leaders)
+      val status= ge.launch(target, leaders, pigs, world, exit = false)
 
       Thread.sleep(500)
+
+      for (i<-0 until world.size){
+        if (world(i) != COLUMN) world(i)=None
+      }
+
+      pigs.map(p=> world(p.currentPos) = Some(p.port))
+
       log.debug("Sending exits..")
       pigs.map(_ !? (50, Exit))
       Constants.BASE_PORT += 100
