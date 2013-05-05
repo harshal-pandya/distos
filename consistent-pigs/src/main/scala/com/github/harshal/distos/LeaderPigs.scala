@@ -207,6 +207,25 @@ trait LamportClock { val clock: Clock = new Clock }
 // Leader Election
 //
 
+object SecondaryLeaderMessages {
+  case class SecondaryLeader(port: Int)
+}
+trait SecondaryLeader extends AbstractNode {
+  this: AbstractNode =>
+  import SecondaryLeaderMessages._
+  override def actions = super.actions ++ Seq(action)
+  
+  @volatile var secondaryLeader: Option[AbstractActor] = None
+    
+  private val action: Any ~> Unit  = {
+    case SecondaryLeader(port) => {
+      secondaryLeader = Some(select(Node("localhost", port), Symbol(port.toString)))
+      log.debug("Leader (%s) set secondary leader to: %s" format (this.port, port))
+      sender ! Ack
+    }
+  }
+}
+
 // Messages required by the `RingBasedLeaderElection` trait.
 object RingBasedElectionMessages {
 
@@ -222,7 +241,6 @@ object RingBasedElectionMessages {
   case class WhoIsLeader()
   case class LeaderId(id: Option[String])
 }
-
 //
 // `RingBasedLeaderElection` is functionality that can be mixed into
 // an `AbstractNode` which performs a ring-based leader election
@@ -484,7 +502,7 @@ class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Loggin
   import GameMessages._
 
   private val numPigs = pigs.size
-  private val worldSize = Math.floor(worldSizeRatio * numPigs).toInt
+  private val worldSize = math.floor(worldSizeRatio * numPigs).toInt
 
   def generateMap(permutFn: Seq[Int] => Seq[Int] = rand.shuffle(_)): Array[Option[Int]] = {
 
@@ -516,7 +534,7 @@ class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Loggin
       leaders  : Seq[Option[AbstractNode]],
       pigs     : Seq[AbstractNode],
       world    : Seq[Option[Int]],
-      exit     : Boolean = true): Map[String, Boolean] = {
+      exit     : Boolean = true): Map[Int, Boolean] = {
 
     // Send out the game map to all pigs.
     for (pig <- pigs) {
@@ -547,7 +565,7 @@ class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Loggin
     }
   }
   
-  def launch(leaders: Seq[Option[Pig]]): Map[String, Boolean] = {
+  def launch(leaders: Seq[Option[Pig]]): Map[Int, Boolean] = {
     val world = generateMap()
     val target = pickTarget
     launch(target, leaders, pigs, world, exit = false)
@@ -671,6 +689,10 @@ object PigsRunner extends Logging {
       // Find the two leaders
       val leaders = pigs.filter(_.amLeader).map(x => Some(x)).withEffect(x => assert(x.size == 2))
       
+      // Introduce the leaders:
+      leaders(0).get !? SecondaryLeaderMessages.SecondaryLeader(leaders(1).get.port)
+      leaders(1).get !? SecondaryLeaderMessages.SecondaryLeader(leaders(0).get.port)
+   
       //
       // Start the game.
       //
@@ -702,7 +724,7 @@ object PigsRunner extends Logging {
     
   }
 
-  def stats(maps: Seq[Map[String,Boolean]]) = {
+  def stats(maps: Seq[Map[Int,Boolean]]) = {
     val deadPigs = maps.map(_.filter(_._2).size).sum
     val numRounds = maps.length
     val expectation = deadPigs.toDouble / numRounds
