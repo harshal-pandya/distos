@@ -717,13 +717,13 @@ object PigsRunner extends Logging {
 
     log.info("generating the map..")
     val world = ge.generateMap()
-    val target = ge.pickTarget
     
     val statuses = for (_ <- 1 to 5) yield {
       //
       // Start the game.
       //
       log.info("launching...")
+      val target = ge.pickTarget
       val status= ge.launch(target, leaders, pigs, world, exit = false)
 
       Thread.sleep(500)
