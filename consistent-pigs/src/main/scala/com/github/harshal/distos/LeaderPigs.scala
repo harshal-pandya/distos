@@ -453,8 +453,15 @@ trait PigGameLogic extends AbstractNode with Logging {
       if (amLeader) {
         flood(BirdApproaching(targetPos, clock.tick()))
         flood(BirdLanded(timeToTarget))
+        
+        // Collect statuses
         buffer = cache.clone() -- neighborsByPort.keys
-        flood(Status())
+        for (n <- neighbors ++ Seq(this)) 
+          (n !? Status()) match { 
+            case WasHit(port, isHit) => buffer.put(port, isHit)
+          }
+        
+        log.debug("Leader sending db update with buffer size: %d" format buffer.size)
         // send the _other_ leader's port
         db !? Update(secondaryLeaderPort.get, buffer)
         commit(buffer)
@@ -479,7 +486,6 @@ trait PigGameLogic extends AbstractNode with Logging {
     }
 
     case BirdLanded(incomingClock) => hitTime = Some(clock.copy())
-    case WasHit(port, isHit)       => buffer.put(port, isHit)  //update cache
     case Status()                  => sender ! WasHit(port, impacted && checkIfHit(moveTime, hitTime))
 
     // Getters and Setters
@@ -571,7 +577,7 @@ class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Loggin
       case _ => Map()
     }
     
-    log.debug("Done statusing: \n%s" format s.mkString("\n"))
+    log.debug("Done statusing (status size: %d): \n%s" format (s.size, s.mkString("\n")))
     s
   }
   
