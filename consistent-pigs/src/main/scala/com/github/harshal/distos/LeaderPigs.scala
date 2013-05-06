@@ -494,9 +494,7 @@ trait PigGameLogic extends AbstractNode with Logging {
 
 class DB(val port: Int) extends AbstractNode with Neighbors with Database
 
-class Pig(val port: Int) extends AbstractNode with Neighbors with RingBasedLeaderElection with LamportClock with PigGameLogic with DatabaseConnection {
-//  lazy val cache = buildCache // TODO: fix this... pigs can't inherit database
-}
+class Pig(val port: Int) extends AbstractNode with Neighbors with RingBasedLeaderElection with LamportClock with PigGameLogic with DatabaseConnection with SecondaryLeader
 
 class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Logging {
   import GameMessages._
