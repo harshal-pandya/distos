@@ -116,8 +116,14 @@ Cache consistency is ensured for pig statuses by a protocol which has several st
 \end{enumerate}
 
 This protocol is shown in Figure~\ref{commit}. There the dotted line represents
-blocking. The red dots represent commits of the updates. This ensures strong
-consistency as both leaders see the same order of events.
+blocking. The red dots represent commits of the updates. 
+
+Because the database is blocking during this operation, no two transactions can
+overlap. This ensures strong consistency as both leaders see the same order of
+events. 
+
+This would be more important if there were ever any conflicting updates, but is
+a good property to have nonetheless.
 
 \begin{figure}
     \centering
