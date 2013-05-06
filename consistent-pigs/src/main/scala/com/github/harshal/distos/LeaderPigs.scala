@@ -692,6 +692,7 @@ object PigsRunner extends Logging {
       // Introduce the leaders:
       leaders(0).get !? SecondaryLeaderMessages.SecondaryLeader(leaders(1).get.port)
       leaders(1).get !? SecondaryLeaderMessages.SecondaryLeader(leaders(0).get.port)
+      log.debug("finsihed intros")
    
       //
       // Start the game.
