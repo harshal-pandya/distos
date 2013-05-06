@@ -101,6 +101,7 @@ object DatabaseMessages {
 trait Database extends AbstractNode with Logging {
   this: AbstractNode
   import DatabaseMessages._
+  import RingBasedElectionMessages._
 
   def initMap(ports: Seq[Int]) = ports.foreach(p => db.put(p, true))
 
@@ -111,9 +112,13 @@ trait Database extends AbstractNode with Logging {
   val db: ConcurrentMap[Int, Boolean] = new ConcurrentHashMap[Int, Boolean]
   
   private val action: Any ~> Unit  = {
-    case Update(port,buffer) => {
-      buffer.foreach(kv=>db.update(kv._1, kv._2))
-      val other = (leaders-select(Node("localhost", port), Symbol(port.toString))).head
+    case Update(port, buffer) => {
+      log.debug("Starting database update...")
+      buffer.foreach { case (k,v) => db.update(k,v) }
+      log.debug("Attempting to contact second leader on port: " + port)
+      val other = select(Node("localhost", port), Symbol(port.toString))
+      (other !? WhoIsLeader()) match { case LeaderId(id) => log.debug("Second leader is: " + id) }
+      log.debug("Successful contact with secondary leader.")
       other !? GameMessages.DatabasePush(buffer)
       sender ! Ack
     }
@@ -216,10 +221,12 @@ trait SecondaryLeader extends AbstractNode {
   override def actions = super.actions ++ Seq(action)
   
   @volatile var secondaryLeader: Option[AbstractActor] = None
-    
+  @volatile var secondaryLeaderPort: Option[Int]       = None
+  
   private val action: Any ~> Unit  = {
     case SecondaryLeader(port) => {
       secondaryLeader = Some(select(Node("localhost", port), Symbol(port.toString)))
+      secondaryLeaderPort = Some(port)
       log.debug("Leader (%s) set secondary leader to: %s" format (this.port, port))
       sender ! Ack
     }
@@ -260,7 +267,7 @@ trait RingBasedLeaderElection extends AbstractNode {
   override def actions = super.actions ++ Seq(action)
 
   private val action: Any ~> Unit  = {
-    case WhoIsLeader => actor {
+    case WhoIsLeader() => actor {
       leader match {
         case Some(l) => sender ! LeaderId(if (amLeader) Some(id) else ((leader.get !? GetId()) match { case Id(id) => Some(id) }))
         case None    => sender ! LeaderId(None)
@@ -332,11 +339,11 @@ object GameMessages {
   case class Position(x: Int)
   case class GetPort()
   case class Port(x: Int)
-  case class Statuses(map: mutable.HashMap[Int,Boolean])
   // Pig => Game Engine
   case class WasHit(port:Int,status: Boolean)
 
   case class GetStatusMap()
+  case class Statuses(map: mutable.HashMap[Int,Boolean])
 
   case class DatabasePush(updates:mutable.HashMap[Int,Boolean])
 
@@ -347,7 +354,7 @@ object GameMessages {
 }
 
 trait PigGameLogic extends AbstractNode with Logging {
-  this: AbstractNode with Neighbors with RingBasedLeaderElection with LamportClock with DatabaseConnection=>
+  this: AbstractNode with Neighbors with RingBasedLeaderElection with LamportClock with DatabaseConnection with SecondaryLeader =>
   override def actions = super.actions ++ Seq(action)
 
   import GameMessages._
@@ -434,22 +441,22 @@ trait PigGameLogic extends AbstractNode with Logging {
       case _ => false.withEffect(_ => log.error("Hit time not set!!!!"))
     }
   }
-
-  def commit(buffer:mutable.HashMap[Int,Boolean]){
-    buffer.foreach(kv=>cache.update(kv._1,kv._2))
-  }
+  
+ def commit(buffer: mutable.HashMap[Int,Boolean]) =
+    buffer.foreach { case (k,v) => cache.update(k,v) }
 
   private val action: Any ~> Unit = {
 
     case SetMap(map) => { gameMap = map; sender ! Ack }
 
-    case Trajectory(targetPos, timeToTarget) => {
+    case Trajectory(targetPos, timeToTarget) => actor {
       if (amLeader) {
         flood(BirdApproaching(targetPos, clock.tick()))
         flood(BirdLanded(timeToTarget))
         buffer = cache.clone() -- neighborsByPort.keys
         flood(Status())
-        db !? Update(port,buffer)
+        // send the _other_ leader's port
+        db !? Update(secondaryLeaderPort.get, buffer)
         commit(buffer)
       }
     }
@@ -472,16 +479,17 @@ trait PigGameLogic extends AbstractNode with Logging {
     }
 
     case BirdLanded(incomingClock) => hitTime = Some(clock.copy())
-    case WasHit(port, isHit)         => buffer.put(port, isHit)  //update cache
+    case WasHit(port, isHit)       => buffer.put(port, isHit)  //update cache
     case Status()                  => sender ! WasHit(port, impacted && checkIfHit(moveTime, hitTime))
 
     // Getters and Setters
     case GetPort()      => sender ! Port(port)
     case GetPosition()  => sender ! Position(currentPos)
     case SetPosition(x) => { currentPos = x; sender ! Ack }
-    case GetStatusMap() => sender ! Statuses(cache)
-    case DatabasePush(updates) => {
-      updates.foreach(kv=>cache.update(kv._1,kv._2))
+    case GetStatusMap() => { log.debug("Preparing to send cache..."); sender ! Statuses(cache) }
+    case DatabasePush(updates) => { 
+      log.debug("Preparing to update with Database-pushed changeset.");
+      updates.foreach { case (k,v) => cache.update(k,v) }
       sender ! Ack
     }
   }
@@ -556,12 +564,17 @@ class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Loggin
       leader ! Trajectory(targetPos, timeToTarget)
 
     Thread.sleep(2000)
+    log.debug("Done Sleeping... Check final statuses...")
 
-    (leaders.flatten.head !? GetStatusMap()) match { 
+    val s: Map[Int, Boolean] = (leaders.flatten.head !? GetStatusMap()) match { 
       case Statuses(map) => map.toMap
       case _ => Map()
     }
+    
+    log.debug("Done statusing: \n%s" format s.mkString("\n"))
+    s
   }
+  
   
   def launch(leaders: Seq[Option[Pig]]): Map[Int, Boolean] = {
     val world = generateMap()
@@ -661,61 +674,69 @@ object PigsRunner extends Logging {
   def main(args: Array[String]): Unit = {
     val numPigs = args(0).toInt
     val worldSizeRatio = args(1).toDouble
-    val statuses = for (i<-1 to 5) yield {
-      val (pigs, ports) = startPigs(numPigs)
-      
-      val part = partitionPigs(pigs, ports).withEffect(x => assert(x.size == 2))
-      val (pigs1, ports1) = (part(0).map(_._1), part(0).map(_._2))
-      val (pigs2, ports2) = (part(1).map(_._1), part(1).map(_._2))
-      
-      log.debug("Starting the database..")
-      startDb(ports)
+    
+    val (pigs, ports) = startPigs(numPigs)
+    
+    val part = partitionPigs(pigs, ports).withEffect(x => assert(x.size == 2))
+    val (pigs1, ports1) = (part(0).map(_._1), part(0).map(_._2))
+    val (pigs2, ports2) = (part(1).map(_._1), part(1).map(_._2))
+    
+    log.debug("Starting the database..")
+    startDb(ports)
 
-      setNeighborsInRingOrder(pigs1, ports1)
-      setNeighborsInRingOrder(pigs2, ports2)
-      
-      log.debug("Sending DebugNeighbors..")
+    setNeighborsInRingOrder(pigs1, ports1)
+    setNeighborsInRingOrder(pigs2, ports2)
+    
+    log.debug("Sending DebugNeighbors..")
       pigs.map(_ ! NeighborMessages.DebugNeighbors)
  
       log.debug("Initiating an election in set 1..")
-      pigs1.head ! RingBasedElectionMessages.Election()
-      log.debug("Initiating an election in set 2..")
-      pigs2.head ! RingBasedElectionMessages.Election()
-      
-      Thread.sleep(1500)
+    pigs1.head ! RingBasedElectionMessages.Election()
+    log.debug("Initiating an election in set 2..")
+    pigs2.head ! RingBasedElectionMessages.Election()
+    
+    Thread.sleep(1500)
 
-      // Find the two leaders
-      val leaders = pigs.filter(_.amLeader).map(x => Some(x)).withEffect(x => assert(x.size == 2))
-      
-      // Introduce the leaders:
-      leaders(0).get !? SecondaryLeaderMessages.SecondaryLeader(leaders(1).get.port)
-      leaders(1).get !? SecondaryLeaderMessages.SecondaryLeader(leaders(0).get.port)
-      log.debug("finsihed intros")
+    // Find the two leaders
+    val leaders = pigs.filter(_.amLeader).map(x => Some(x)).withEffect(x => assert(x.size == 2))
+    
+    // Introduce the leaders:
+    leaders(0).get !? SecondaryLeaderMessages.SecondaryLeader(leaders(1).get.port)
+    leaders(1).get !? SecondaryLeaderMessages.SecondaryLeader(leaders(0).get.port)
    
+    val ge = new GameEngine(pigs, worldSizeRatio)
+
+    log.info("generating the map..")
+    val world = ge.generateMap()
+    val target = ge.pickTarget
+    
+    val statuses = for (_ <- 1 to 5) yield {
       //
       // Start the game.
       //
-      val ge = new GameEngine(pigs, worldSizeRatio)
-
-      log.info("generating the map..")
-      val world = ge.generateMap()
-      val target = ge.pickTarget
       log.info("launching...")
       val status= ge.launch(target, leaders, pigs, world, exit = false)
 
       Thread.sleep(500)
 
-      for (i<-0 until world.size){
-        if (world(i) != COLUMN) world(i)=None
+      // Update Map
+      {
+        log.debug("Updating map with new positions.")
+        // remove all the pigs, keeping the columns
+        world.zipWithIndex
+             .filter(_._1 != None)
+             .map { case (Some(value), i) => if (value != COLUMN) world(i) = None }
+        // Add back the pigs in their new positions
+        pigs.map(p => world(p.currentPos) = Some(p.port))
       }
 
-      pigs.map(p=> world(p.currentPos) = Some(p.port))
-
-      log.debug("Sending exits..")
-      pigs.map(_ !? (50, Exit))
-      Constants.BASE_PORT += 100
       status
     }
+    
+    // Shutdown all the pigs...
+    log.debug("Sending exits...")
+    pigs.map(_ !? (50, Exit))
+    Constants.BASE_PORT += 100
     
     val (_,exp) = stats(statuses)
     log.info("expected # dead pigs: " + exp)
