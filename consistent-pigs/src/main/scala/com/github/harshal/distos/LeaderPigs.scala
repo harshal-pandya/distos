@@ -724,7 +724,7 @@ object PigsRunner extends Logging {
       //
       log.info("launching...")
       val target = ge.pickTarget
-      val status= ge.launch(target, leaders, pigs, world, exit = false)
+      val status = ge.launch(target, leaders, pigs, world, exit = false)
 
       Thread.sleep(500)
 
@@ -732,9 +732,10 @@ object PigsRunner extends Logging {
       {
         log.debug("Updating map with new positions.")
         // remove all the pigs, keeping the columns
-        world.zipWithIndex
-             .filter(_._1 != None)
-             .map { case (Some(value), i) => if (value != COLUMN) world(i) = None }
+        world.zipWithIndex.map { 
+          case (Some(value), i) => if (value != COLUMN) world(i) = None
+          case (None, i)        => ()
+        }
         // Add back the pigs in their new positions
         pigs.map(p => world(p.currentPos) = Some(p.port))
       }
