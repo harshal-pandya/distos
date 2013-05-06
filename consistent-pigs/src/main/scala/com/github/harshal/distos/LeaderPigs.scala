@@ -578,6 +578,9 @@ class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Loggin
     }
     
     log.debug("Done statusing (status size: %d): \n%s" format (s.size, s.mkString("\n")))
+    
+    prettyPrint(targetPos, s.toSeq, world)
+    
     s
   }
   
