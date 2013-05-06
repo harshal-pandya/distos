@@ -3,6 +3,7 @@
 \usepackage{lmodern}
 \usepackage{amssymb,amsmath}
 \usepackage{fullpage}
+\usepackage{todonotes}
 \usepackage{ifxetex,ifluatex}
 \usepackage{fixltx2e} % provides \textsubscript
 % use microtype if available
@@ -62,8 +63,13 @@
 \maketitle
 
 Our system implements the provided spec: a pig2pig network in which pigs
-collaborate to avoid impact with an adversarial bird. The pigs dynamically 
-elect a leader amongst themselves and use Lamport's clocks for synchronization. 
+collaborate to avoid impact with an adversarial bird. The pigs dynamically
+elect a two leaders amongst themselves and use Lamport's clocks for
+synchronization. Most importantly, each leader has a local cache of pig
+statuses which is consistent with the second leader's view. This is done via
+with a commit protocol via an intermediate, persistent database actor. The
+system also automatically fails-over when a leader fails, not losing any pig
+statuses.
 
 \subsection{Actors}
 We use the actor concurrency model to enable communication between machines. The
@@ -93,6 +99,36 @@ After the time to target as specified by the bird has expired the leader sends a
 The pigs simulate the network delay and after comparing the time stamp, save it as Hit Time.\\
 When the leader queries the pigs for their status, they respond by comparing these clock values to decide if they were able to move before the bird hit. 
 Obviously, all this happens only if the pig is impacted by the bird's landing.  
+
+\subsection{Cache Consistency}
+
+Cache consistency is ensured for pig statuses by a protocol which has several steps and is run on each leader:
+
+\begin{enumerate}[1.]
+    \item
+        The leader makes a call to all minion pigs for their statuses.
+    \item
+        Status responses are collected in a buffer, which is sent to the database.
+    \item
+        The database blocks all other updates until the update has been passed to and commited on the other leader.
+    \item
+        The database reponses to the leader, waiting for acknowledgement that the original leader has commited the changes to its cache.
+\end{enumerate}
+
+This protocol is shown in Figure~\ref{commit}. There the dotted line represents
+blocking. The red dots represent commits of the updates. This ensures strong
+consistency as both leaders see the same order of events.
+
+\begin{figure}
+    \centering
+    \includegraphics{figs/commit.pdf}
+    \caption{The commit protocol ensuring consistnt caches between leaders.\label{commit}}
+\end{figure}
+
+
+\subsection{Fault Tolerance}
+
+
 
 \subsection{Game Map}
 
@@ -198,8 +234,10 @@ Our program can be run with:
 \end{enumerate}
 
 \section{Experiments:}
-\includegraphics{figs/chart_1.pdf}
-\includegraphics{figs/chart_2.pdf}
+\missingfigure{Experiment having to do with consistency}
+\missingfigure{Experiment having to do with fault-tolerance}
+%\includegraphics{figs/chart_1.pdf}
+%\includegraphics{figs/chart_2.pdf}
 
 \pagebreak
 
