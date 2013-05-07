@@ -362,12 +362,12 @@ trait FaultTolerance extends AbstractNode {
             for (n <- neighbors ++ Seq(this))
               n !? NeighborMessages.UpdateNeighbors(cache.keys.toSeq)
             log.debug("%s: Done updating all minions." format port)
-            sender ! Ack
           }
-          case _ => { log.debug("Secondary leader is awake. %d continuing as normal." format port); sender ! Ack }
+          case _ =>  log.debug("Secondary leader is awake. %d continuing as normal." format port)
         }
       }
-      else { sender ! Ack }
+      log.debug("%s: Ack'ing CheckIfAwake." format port)
+      sender ! Ack
     }
   }
 }
@@ -781,7 +781,7 @@ object PigsRunner extends Logging {
     
     val statuses = for (k <- 1 to 3) yield {
       
-      if (k == 1) {
+      if (k == 2) {
         log.debug("Putting leader %d to sleep." format leaders(0).get.port)
         leaders(0).get !? FaultToleranceMessages.Sleep()
       }
