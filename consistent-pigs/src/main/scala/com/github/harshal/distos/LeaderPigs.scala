@@ -130,7 +130,7 @@ trait Database extends AbstractNode with Logging {
       log.debug("Added " + port + " as leader.")
       sender ! Ack
     }
-    case GetDBCopy() => sender ! DBCopy(mutable.HashMap[Int,Boolean](db.toSeq:_*))
+    case GetDBCopy() => {log.debug("Fetching cache from DB"); sender ! DBCopy(mutable.HashMap[Int,Boolean](db.toSeq:_*))}
   }
 }
 
@@ -192,12 +192,12 @@ trait Neighbors extends AbstractNode with Logging {
       port -> select(Node("localhost", port), Symbol(port.toString))
     ).toSeq)
     neighbors = neighborsByPort.values.toSeq
-    neighborsById = neighborsById ++ (neighbors.map(pig =>
-      pig !? GetId() match {
-        case Id(id) => Some(id -> pig)
-        case _ => None
-      }
-    ).flatten)
+//    neighborsById = neighborsById ++ (neighbors.map(pig =>
+//      pig !? GetId() match {
+//        case Id(id) => Some(id -> pig)
+//        case _ => None
+//      }
+//    ).flatten)
   }
   
   // Send messages to all neighbors asynchronously and yourself.
@@ -347,7 +347,7 @@ trait FaultTolerance extends AbstractNode {
   override def actions = super.actions ++ Seq(action)
 
   import FaultToleranceMessages._
-  
+
   @volatile var sleeping = false
 
   private val action: Any ~> Unit  = {
@@ -362,10 +362,12 @@ trait FaultTolerance extends AbstractNode {
             for (n <- neighbors ++ Seq(this))
               n !? NeighborMessages.UpdateNeighbors(cache.keys.toSeq)
             log.debug("%s: Done updating all minions." format port)
+            sender ! Ack
           }
-          case _ => log.debug("Secondary leader is awake. %d continuing as normal." format port)
+          case _ => { log.debug("Secondary leader is awake. %d continuing as normal." format port); sender ! Ack }
         }
       }
+      else { sender ! Ack }
     }
   }
 }
@@ -516,7 +518,7 @@ trait PigGameLogic extends AbstractNode with Logging {
         }
         log.debug("Leader sending db update with buffer size: %d" format buffer.size)
 
-        Thread.sleep(5000)
+        Thread.sleep(1000)
         // send the _other_ leader's port
         db !? Update(secondaryLeaderPort.get, buffer)
         commit(buffer)
@@ -554,7 +556,7 @@ trait PigGameLogic extends AbstractNode with Logging {
     case GetPosition()  => sender ! Position(currentPos)
     case SetPosition(x) => { currentPos = x; sender ! Ack }
     case GetStatusMap() => { log.debug("Preparing to send cache..."); sender ! Statuses(cache) }
-    case DatabasePush(updates) => { 
+    case DatabasePush(updates) => {
       log.debug("Preparing to update with Database-pushed changeset.");
       updates.foreach { case (k,v) => cache.update(k,v) }
       sender ! Ack
@@ -630,7 +632,7 @@ class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Loggin
     for (leader <- leaders.flatten)
       leader ! Trajectory(targetPos, timeToTarget)
 
-    Thread.sleep(2000)
+    Thread.sleep(10000)
     log.debug("Done Sleeping... Check final statuses...")
 
     val s: Map[Int, Boolean] = (leaders.flatten.head !? GetStatusMap()) match {
@@ -734,6 +736,7 @@ object PigsRunner extends Logging {
   def startDb(ports:Seq[Int]): DB =
     new DB(Constants.DB_PORT).withEffect { db => 
       db.start()
+      db.initMap(ports)
       log.info("Started db on port: %d" format Constants.DB_PORT)
     }
 
@@ -776,16 +779,16 @@ object PigsRunner extends Logging {
     log.info("generating the map..")
     val world = ge.generateMap()
     
-    val statuses = for (k <- 1 to 5) yield {
+    val statuses = for (k <- 1 to 3) yield {
       
-      if (k == 2) {
+      if (k == 1) {
         log.debug("Putting leader %d to sleep." format leaders(0).get.port)
         leaders(0).get !? FaultToleranceMessages.Sleep()
       }
       
       //Check if leader sleeping
-      leaders(0).get ! FaultToleranceMessages.CheckIfAwake()
-      leaders(1).get ! FaultToleranceMessages.CheckIfAwake()
+      leaders(0).get !? FaultToleranceMessages.CheckIfAwake()
+      leaders(1).get !? FaultToleranceMessages.CheckIfAwake()
 
       //
       // Start the game.
