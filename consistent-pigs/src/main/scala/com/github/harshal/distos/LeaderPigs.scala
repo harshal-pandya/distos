@@ -14,8 +14,6 @@ import scala.collection.mutable.{ArrayBuffer, ConcurrentMap, LinkedHashMap}
 import scala.collection.JavaConversions._
 import scala.util.Random
 import Util._
-import com.github.harshal.distos.DatabaseMessages.Update
-import com.github.harshal.distos.GameMessages.{Sleep, Yes, No, CheckIfAwake}
 
 // Various, general utilities and conveniences used in the code.
 object Util {
@@ -62,8 +60,6 @@ abstract class AbstractNode extends AbstractActor with Actor with Logging {
   //process id for this actor/pig
   val id:String = UUID.randomUUID().toString.take(8)
 
-  var sleeping = false
-  var dead = false
   // The port on which this pig will run.
   val port: Int
   // The behaviors this pig has.
@@ -155,6 +151,7 @@ class LocalCache(private val cache:mutable.HashMap[String,Boolean]){
 //
 object NeighborMessages {
   case class SetNeighbors(ports: Seq[Int])
+  case class UpdateNeighbors(ports: Seq[Int])
   case class DebugNeighbors()
   case class GetId()
   case class Id(id: String)
@@ -167,12 +164,13 @@ trait Neighbors extends AbstractNode with Logging {
 
   // The linked-map preserves the given neighbor ordering.
   @volatile var neighbors: Seq[AbstractActor] = Seq.empty
-  @volatile var neighborsByPort: LinkedHashMap[Int,    AbstractActor] = new LinkedHashMap()
-  @volatile var neighborsById:   LinkedHashMap[String, AbstractActor] = new LinkedHashMap()
+  @volatile var neighborsByPort  = new LinkedHashMap[Int   , AbstractActor]()
+  @volatile var neighborsById    = new LinkedHashMap[String, AbstractActor]()
 
   private val action: Any ~> Unit  = {
-    case n: SetNeighbors => { log.debug("" + port + " received neighbor list: " + n); setNeighbors(n); sender ! Ack }
-    case    DebugNeighbors => { log.info("" + port + " Neighbors: " + neighborsById.keys.mkString(",")) }
+    case n: SetNeighbors    => { log.debug("" + port + " received neighbor list: " + n)       ; setNeighbors(n)   ; sender ! Ack }
+    case n: UpdateNeighbors => { log.debug("" + port + " received neighbor update list: " + n); updateNeighbors(n); sender ! Ack }
+    case    DebugNeighbors  => { log.info ("" + port + " Neighbors: " + neighborsById.keys.mkString(",")) }
     case GetId() => sender ! Id(id)
   }
 
@@ -188,9 +186,9 @@ trait Neighbors extends AbstractNode with Logging {
       }
     ).flatten)
   }
-
-  def updateNeighbors(n : Iterable[Int]) : Unit = {
-    neighborsByPort = neighborsByPort ++ (n.map(port =>
+  
+  def updateNeighbors(n :UpdateNeighbors) : Unit = {
+    neighborsByPort = neighborsByPort ++ (n.ports.map(port =>
       port -> select(Node("localhost", port), Symbol(port.toString))
     ).toSeq)
     neighbors = neighborsByPort.values.toSeq
@@ -201,7 +199,7 @@ trait Neighbors extends AbstractNode with Logging {
       }
     ).flatten)
   }
-
+  
   // Send messages to all neighbors asynchronously and yourself.
   def flood(msg: Any) = {
     for (n <- neighbors) n ! msg
@@ -335,6 +333,42 @@ trait RingBasedLeaderElection extends AbstractNode {
 
 }
 
+//
+// Fault Tolerance
+//
+
+object FaultToleranceMessages {
+  case class Sleep()
+  case class AreYouAwake()
+  case class CheckIfAwake()
+}
+trait FaultTolerance extends AbstractNode {
+  this: AbstractNode with Neighbors with SecondaryLeader with PigGameLogic =>
+  override def actions = super.actions ++ Seq(action)
+
+  import FaultToleranceMessages._
+  
+  @volatile var sleeping = false
+
+  private val action: Any ~> Unit  = {
+    case Sleep()       => { log.info("%d sleeping." format port); sleeping = true; sender ! Ack }
+    case AreYouAwake() => { if (!sleeping) sender ! Ack }
+    case CheckIfAwake() => actor {
+      if(!sleeping) {
+        secondaryLeader.get !? (Constants.CHECK_AWAKE_TIMEOUT, AreYouAwake()) match {
+          case None => {
+            log.error("%s did not respond to Leader message" format secondaryLeaderPort)
+            log.debug("%s: Synchronously flooding new neighbors" format port)
+            for (n <- neighbors ++ Seq(this))
+              n !? NeighborMessages.UpdateNeighbors(cache.keys.toSeq)
+            log.debug("%s: Done updating all minions." format port)
+          }
+          case _ => log.debug("Secondary leader is awake. %d continuing as normal." format port)
+        }
+      }
+    }
+  }
+}
 
 //
 // Game Logic
@@ -368,31 +402,21 @@ object GameMessages {
 
   // Pig => Pig
   case class BirdApproaching(position: Int, clock: Clock)
-
-  case class Sleep()
-
-  case class AreYouAwake()
-
-  case class CheckIfAwake()
-
-  case class Yes()
-
-  case class No()
 }
 
-
 trait PigGameLogic extends AbstractNode with Logging {
-  this: AbstractNode with Neighbors with RingBasedLeaderElection with LamportClock with DatabaseConnection with SecondaryLeader =>
+  this: AbstractNode with Neighbors with RingBasedLeaderElection with LamportClock with DatabaseConnection with SecondaryLeader with FaultTolerance =>
   override def actions = super.actions ++ Seq(action)
 
   import GameMessages._
   import DatabaseMessages._
-  var currentPos:Int = -1
-  var moveTime: Option[Clock] = None
-  var hitTime: Option[Clock] = None
-  var impacted: Boolean = false
-  var gameMap: GameMessages.GameMap = null
-  var buffer:mutable.HashMap[Int,Boolean] = mutable.HashMap[Int,Boolean]()
+  @volatile var currentPos:Int = -1
+  @volatile var moveTime: Option[Clock] = None
+  @volatile var hitTime: Option[Clock] = None
+  @volatile var impacted: Boolean = false
+  @volatile var dead = false
+  @volatile var gameMap: GameMessages.GameMap = null
+  @volatile var buffer:mutable.HashMap[Int,Boolean] = mutable.HashMap[Int,Boolean]()
   lazy val cache = (db !? DatabaseMessages.GetDBCopy()) match {
     case DBCopy(map) => map
     case _ => !!!
@@ -535,19 +559,6 @@ trait PigGameLogic extends AbstractNode with Logging {
       updates.foreach { case (k,v) => cache.update(k,v) }
       sender ! Ack
     }
-    case Sleep() => actor { log.info("" + port + " sleeping."); sleeping=true; sender ! Ack}
-    case AreYouAwake() => { if(!sleeping) sender ! Ack }
-    case CheckIfAwake() => {
-      if(!sleeping){
-        secondaryLeader.get !? (Constants.CHECK_AWAKE_TIMEOUT, AreYouAwake) match {
-        case None => {
-          log.error("%s did not respond to Leader message" format secondaryLeaderPort);
-          updateNeighbors((cache -- neighborsByPort.keySet).keys)
-        }
-        case _    => ()
-        }
-      }
-    }
   }
 }
 
@@ -558,7 +569,7 @@ trait PigGameLogic extends AbstractNode with Logging {
 
 class DB(val port: Int) extends AbstractNode with Neighbors with Database
 
-class Pig(val port: Int) extends AbstractNode with Neighbors with RingBasedLeaderElection with LamportClock with PigGameLogic with DatabaseConnection with SecondaryLeader
+class Pig(val port: Int) extends AbstractNode with Neighbors with RingBasedLeaderElection with LamportClock with PigGameLogic with DatabaseConnection with SecondaryLeader with FaultTolerance
 
 class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Logging {
   import GameMessages._
@@ -616,29 +627,19 @@ class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Loggin
     val timeToTarget = Clock(rand.nextInt(5) + 3)
     println("Time to target: " + timeToTarget._clockValue)
 
-//    for (leader <- leaders.flatten)
-//      leader ! Trajectory(targetPos, timeToTarget)
+    for (leader <- leaders.flatten)
+      leader ! Trajectory(targetPos, timeToTarget)
 
-    leaders.flatten.par.foreach(leader => {
-      leader !? Trajectory(targetPos, timeToTarget)
-//      match{
-//        case Ack => println("Got Ack")
-//        case _ => !!!
-//      }
-    })
-
-//    Thread.sleep(10000)
+    Thread.sleep(2000)
     log.debug("Done Sleeping... Check final statuses...")
 
-    val s: Map[Int, Boolean] = (leaders.flatten.find(!_.sleeping).get !? GetStatusMap()) match {
+    val s: Map[Int, Boolean] = (leaders.flatten.head !? GetStatusMap()) match {
       case Statuses(map) => map.toMap
       case _ => Map()
     }
     
     log.debug("Done statusing (status size: %d): \n%s" format (s.size, s.mkString("\n")))
-    
     prettyPrint(targetPos, s.toSeq, world)
-    
     s
   }
   
@@ -725,8 +726,7 @@ object PigsRunner extends Logging {
     pigs.zip(ids).grouped(math.ceil(pigs.size / 2.0).toInt).toSeq
  
   def setNeighborsInRingOrder(pigs: Seq[Pig], ids: Seq[Int]): Unit = {
-    log.debug("Ring arranger pigs: %s" format (pigs.map(_.port).mkString(", "))) 
-    log.debug("Ring arranger  ids: %s" format (ids.mkString(", ")))  
+    log.debug("Ring arranger ids: %s" format (ids.mkString(", ")))  
     for ((pig, neighbors) <- (pigs.zip(Stream.continually(ids).flatten.sliding(ids.size).map(_.drop(1).toArray.toSeq).toSeq)))
       pig !? NeighborMessages.SetNeighbors(neighbors)
   }
@@ -734,8 +734,7 @@ object PigsRunner extends Logging {
   def startDb(ports:Seq[Int]): DB =
     new DB(Constants.DB_PORT).withEffect { db => 
       db.start()
-
-      log.info("Started pig on port: " + Constants.DB_PORT)
+      log.info("Started db on port: %d" format Constants.DB_PORT)
     }
 
       
@@ -778,18 +777,22 @@ object PigsRunner extends Logging {
     val world = ge.generateMap()
     
     val statuses = for (k <- 1 to 5) yield {
-      if (k==2){log.debug("Killing 0");  leaders(0).get !? Sleep}
-      println("Slept")
+      
+      if (k == 2) {
+        log.debug("Putting leader %d to sleep." format leaders(0).get.port)
+        leaders(0).get !? FaultToleranceMessages.Sleep()
+      }
+      
       //Check if leader sleeping
-      leaders(0).get ! CheckIfAwake
-      leaders(1).get ! CheckIfAwake
+      leaders(0).get ! FaultToleranceMessages.CheckIfAwake()
+      leaders(1).get ! FaultToleranceMessages.CheckIfAwake()
 
       //
       // Start the game.
       //
       log.info("launching...")
       val target = ge.pickTarget
-      val status = ge.launch(target, leaders, pigs, world, exit = false)
+      val status = ge.launch(target, leaders.filterNot(x => (x == None || x.get.sleeping)), pigs, world, exit = false)
 
       Thread.sleep(500)
 
