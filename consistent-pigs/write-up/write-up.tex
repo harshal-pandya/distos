@@ -143,6 +143,10 @@ telling them that he is their new leader.
 
 In this scenario the database commit semantics must also be revised.  This is
 because a full commit requires that the other leader has commited the update.
+To fix this issue, we simply have the databse check if the other leader is
+sleeping before asking it to commit an update. If it is asleep then the
+transaction succeeds because we can not possibly block on a sleeping pig which
+is blocking the transaction.
 
 \subsection{Game Map}
 
