@@ -506,7 +506,7 @@ trait PigGameLogic extends AbstractNode with Logging {
         flood(BirdLanded(timeToTarget))
         
         // Collect statuses
-        buffer = cache.clone() -- neighborsByPort.keys
+        buffer = cache.clone().filter(k=>(neighborsByPort.keySet+port)(k._1))
         for (n <- neighbors ++ Seq(this)){
           log.debug(n.toString)
           (n !? Status()) match { 
