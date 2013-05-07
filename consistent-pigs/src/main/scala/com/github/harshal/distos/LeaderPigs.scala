@@ -15,6 +15,7 @@ import scala.collection.JavaConversions._
 import scala.util.Random
 import Util._
 import com.github.harshal.distos.DatabaseMessages.Update
+import com.github.harshal.distos.GameMessages.{Sleep, Yes, No, CheckIfAwake}
 
 // Various, general utilities and conveniences used in the code.
 object Util {
@@ -51,6 +52,7 @@ object Util {
   val COLUMN = -2
 }
 
+
 //
 // An `AbstractNode` is an actor with a port and
 // an empty sequence of actions to be performed on receipt
@@ -60,6 +62,8 @@ abstract class AbstractNode extends AbstractActor with Actor with Logging {
   //process id for this actor/pig
   val id:String = UUID.randomUUID().toString.take(8)
 
+  var sleeping = false
+  var dead = false
   // The port on which this pig will run.
   val port: Int
   // The behaviors this pig has.
@@ -178,6 +182,19 @@ trait Neighbors extends AbstractNode with Logging {
     ).toSeq)
     neighbors = neighborsByPort.values.toSeq
     neighborsById = new LinkedHashMap[String, AbstractActor] ++ (neighbors.map(pig =>
+      pig !? GetId() match {
+        case Id(id) => Some(id -> pig)
+        case _ => None
+      }
+    ).flatten)
+  }
+
+  def updateNeighbors(n : Iterable[Int]) : Unit = {
+    neighborsByPort = neighborsByPort ++ (n.map(port =>
+      port -> select(Node("localhost", port), Symbol(port.toString))
+    ).toSeq)
+    neighbors = neighborsByPort.values.toSeq
+    neighborsById = neighborsById ++ (neighbors.map(pig =>
       pig !? GetId() match {
         case Id(id) => Some(id -> pig)
         case _ => None
@@ -351,7 +368,18 @@ object GameMessages {
 
   // Pig => Pig
   case class BirdApproaching(position: Int, clock: Clock)
+
+  case class Sleep()
+
+  case class AreYouAwake()
+
+  case class CheckIfAwake()
+
+  case class Yes()
+
+  case class No()
 }
+
 
 trait PigGameLogic extends AbstractNode with Logging {
   this: AbstractNode with Neighbors with RingBasedLeaderElection with LamportClock with DatabaseConnection with SecondaryLeader =>
@@ -450,7 +478,7 @@ trait PigGameLogic extends AbstractNode with Logging {
     case SetMap(map) => { gameMap = map; sender ! Ack }
 
     case Trajectory(targetPos, timeToTarget) => actor {
-      if (amLeader) {
+      if (amLeader && !sleeping) {
         flood(BirdApproaching(targetPos, clock.tick()))
         flood(BirdLanded(timeToTarget))
         
@@ -463,31 +491,39 @@ trait PigGameLogic extends AbstractNode with Logging {
           }
         }
         log.debug("Leader sending db update with buffer size: %d" format buffer.size)
+
+        Thread.sleep(5000)
         // send the _other_ leader's port
         db !? Update(secondaryLeaderPort.get, buffer)
         commit(buffer)
+        log.debug("Commit")
+        sender ! Ack
       }
     }
 
     case BirdApproaching(targetPos, incomingClock) => {
-
-      Util.simulateNetworkDelay(clock)
-      clock.setMax(incomingClock)
-      // Move if required
-      if (((targetPos == currentPos-1) && isColumn  (currentPos-1)) ||
+      if(!dead){
+        Util.simulateNetworkDelay(clock)
+        clock.setMax(incomingClock)
+        // Move if required
+        if (((targetPos == currentPos-1) && isColumn  (currentPos-1)) ||
           ((targetPos == currentPos-2) && isColumn  (currentPos-1)) ||
           ((targetPos == currentPos-1) && isNotEmpty(currentPos-1)) ||
-           (targetPos == currentPos)) {
-        impacted = true
-        val success = move()
-        clock.tick()
-        if (success)
-          moveTime = Some(clock.copy())
+          (targetPos == currentPos)) {
+          impacted = true
+          val success = move()
+          clock.tick()
+          if (success)
+            moveTime = Some(clock.copy())
+        }
       }
     }
 
     case BirdLanded(incomingClock) => hitTime = Some(clock.copy())
-    case Status()                  => sender ! WasHit(port, impacted && checkIfHit(moveTime, hitTime))
+    case Status()                  => {
+      if(!dead) dead = impacted && checkIfHit(moveTime, hitTime)
+      sender ! WasHit(port, dead)
+    }
 
     // Getters and Setters
     case GetPort()      => sender ! Port(port)
@@ -498,6 +534,19 @@ trait PigGameLogic extends AbstractNode with Logging {
       log.debug("Preparing to update with Database-pushed changeset.");
       updates.foreach { case (k,v) => cache.update(k,v) }
       sender ! Ack
+    }
+    case Sleep() => actor { log.info("" + port + " sleeping."); sleeping=true; sender ! Ack}
+    case AreYouAwake() => { if(!sleeping) sender ! Ack }
+    case CheckIfAwake() => {
+      if(!sleeping){
+        secondaryLeader.get !? (Constants.CHECK_AWAKE_TIMEOUT, AreYouAwake) match {
+        case None => {
+          log.error("%s did not respond to Leader message" format secondaryLeaderPort);
+          updateNeighbors((cache -- neighborsByPort.keySet).keys)
+        }
+        case _    => ()
+        }
+      }
     }
   }
 }
@@ -567,13 +616,21 @@ class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Loggin
     val timeToTarget = Clock(rand.nextInt(5) + 3)
     println("Time to target: " + timeToTarget._clockValue)
 
-    for (leader <- leaders.flatten)
-      leader ! Trajectory(targetPos, timeToTarget)
+//    for (leader <- leaders.flatten)
+//      leader ! Trajectory(targetPos, timeToTarget)
 
-    Thread.sleep(2000)
+    leaders.flatten.par.foreach(leader => {
+      leader !? Trajectory(targetPos, timeToTarget)
+//      match{
+//        case Ack => println("Got Ack")
+//        case _ => !!!
+//      }
+    })
+
+//    Thread.sleep(10000)
     log.debug("Done Sleeping... Check final statuses...")
 
-    val s: Map[Int, Boolean] = (leaders.flatten.head !? GetStatusMap()) match {
+    val s: Map[Int, Boolean] = (leaders.flatten.find(!_.sleeping).get !? GetStatusMap()) match {
       case Statuses(map) => map.toMap
       case _ => Map()
     }
@@ -643,6 +700,7 @@ object Constants {
   var DB_PORT = 9999 
   val ELECTION_TIMEOUT = 300 //ms
   val DB_TIMEOUT = 300 //ms
+  val CHECK_AWAKE_TIMEOUT = 300 //ms
 }
 
 object PigsRunner extends Logging {
@@ -719,7 +777,13 @@ object PigsRunner extends Logging {
     log.info("generating the map..")
     val world = ge.generateMap()
     
-    val statuses = for (_ <- 1 to 5) yield {
+    val statuses = for (k <- 1 to 5) yield {
+      if (k==2){log.debug("Killing 0");  leaders(0).get !? Sleep}
+      println("Slept")
+      //Check if leader sleeping
+      leaders(0).get ! CheckIfAwake
+      leaders(1).get ! CheckIfAwake
+
       //
       // Start the game.
       //
@@ -738,7 +802,7 @@ object PigsRunner extends Logging {
           case (None, i)        => ()
         }
         // Add back the pigs in their new positions
-        pigs.map(p => world(p.currentPos) = Some(p.port))
+        pigs.filterNot(_.dead).map(p => world(p.currentPos) = Some(p.port))
       }
 
       status
