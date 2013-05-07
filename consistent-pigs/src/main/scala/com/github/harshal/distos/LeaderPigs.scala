@@ -778,7 +778,7 @@ object PigsRunner extends Logging {
     log.info("generating the map..")
     val world = ge.generateMap()
     
-    val statuses = for (k <- 1 to 1) yield {
+    val statuses = for (k <- 1 to 3) yield {
       
       if (k == 3) {
         log.debug("Putting leader %d to sleep." format leaders(0).get.port)

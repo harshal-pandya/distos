@@ -134,7 +134,15 @@ a good property to have nonetheless.
 
 \subsection{Fault Tolerance}
 
+It may be the case that a leader may fall asleep. In this scenario it is
+necessary that the pigs which communicate with that leader move to the awake
+leader. To support this it is necessary that each leader check if the other is
+awake at the beginning of each iteration. If one of the leaders has fallen
+asleep then the awake leader communicates which each of the orphaned pigs
+telling them that he is their new leader.
 
+In this scenario the database commit semantics must also be revised.  This is
+because a full commit requires that the other leader has commited the update.
 
 \subsection{Game Map}
 
