@@ -130,7 +130,10 @@ trait Database extends AbstractNode with Logging {
       log.debug("Added " + port + " as leader.")
       sender ! Ack
     }
-    case GetDBCopy() => {log.debug("Fetching cache from DB"); sender ! DBCopy(mutable.HashMap[Int,Boolean](db.toSeq:_*))}
+    case GetDBCopy() => {
+      log.debug("Fetching cache from DB..")
+      sender ! DBCopy(mutable.HashMap[Int,Boolean](db.toSeq:_*))
+    }
   }
 }
 
@@ -192,12 +195,7 @@ trait Neighbors extends AbstractNode with Logging {
       port -> select(Node("localhost", port), Symbol(port.toString))
     ).toSeq)
     neighbors = neighborsByPort.values.toSeq
-//    neighborsById = neighborsById ++ (neighbors.map(pig =>
-//      pig !? GetId() match {
-//        case Id(id) => Some(id -> pig)
-//        case _ => None
-//      }
-//    ).flatten)
+    // XXX: not updating neighborsById. This shouldn't be a problem though.
   }
   
   // Send messages to all neighbors asynchronously and yourself.
@@ -367,7 +365,6 @@ trait FaultTolerance extends AbstractNode {
         }
       }
       log.debug("%s: Ack'ing CheckIfAwake." format port)
-      sender ! Ack
     }
   }
 }
@@ -632,7 +629,7 @@ class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Loggin
     for (leader <- leaders.flatten)
       leader ! Trajectory(targetPos, timeToTarget)
 
-    Thread.sleep(10000)
+    Thread.sleep(2000)
     log.debug("Done Sleeping... Check final statuses...")
 
     val s: Map[Int, Boolean] = (leaders.flatten.head !? GetStatusMap()) match {
@@ -703,7 +700,7 @@ object Constants {
   var DB_PORT = 9999 
   val ELECTION_TIMEOUT = 300 //ms
   val DB_TIMEOUT = 300 //ms
-  val CHECK_AWAKE_TIMEOUT = 300 //ms
+  val CHECK_AWAKE_TIMEOUT = 100 //ms
 }
 
 object PigsRunner extends Logging {
@@ -787,9 +784,11 @@ object PigsRunner extends Logging {
       }
       
       //Check if leader sleeping
-      leaders(0).get !? FaultToleranceMessages.CheckIfAwake()
-      leaders(1).get !? FaultToleranceMessages.CheckIfAwake()
+      leaders(0).get ! FaultToleranceMessages.CheckIfAwake()
+      leaders(1).get ! FaultToleranceMessages.CheckIfAwake()
 
+      Thread.sleep(1000)
+      
       //
       // Start the game.
       //
