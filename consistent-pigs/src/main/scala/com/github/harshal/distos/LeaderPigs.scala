@@ -114,6 +114,7 @@ trait Database extends AbstractNode with Logging {
   private val action: Any ~> Unit  = {
     case Update(port, buffer) => {
       log.debug("Starting database update...")
+      log.debug("Updating database with values:\n%s" format buffer.mkString("\n"))
       buffer.foreach { case (k,v) => db.update(k,v) }
       log.debug("Attempting to contact second leader on port: " + port)
       val other = select(Node("localhost", port), Symbol(port.toString))
@@ -506,7 +507,8 @@ trait PigGameLogic extends AbstractNode with Logging {
         flood(BirdLanded(timeToTarget))
         
         // Collect statuses
-        buffer = cache.clone() -- neighborsByPort.keys
+        buffer = cache.filter { case (k,v) => neighborsByPort.keys.contains(k) }
+        log.debug("Buffer size before status flood: %d" format buffer.size)
         for (n <- neighbors ++ Seq(this)){
           log.debug(n.toString)
           (n !? Status()) match { 
@@ -530,9 +532,9 @@ trait PigGameLogic extends AbstractNode with Logging {
         clock.setMax(incomingClock)
         // Move if required
         if (((targetPos == currentPos-1) && isColumn  (currentPos-1)) ||
-          ((targetPos == currentPos-2) && isColumn  (currentPos-1)) ||
-          ((targetPos == currentPos-1) && isNotEmpty(currentPos-1)) ||
-          (targetPos == currentPos)) {
+            ((targetPos == currentPos-2) && isColumn  (currentPos-1)) ||
+            ((targetPos == currentPos-1) && isNotEmpty(currentPos-1)) ||
+             (targetPos == currentPos)) {
           impacted = true
           val success = move()
           clock.tick()
@@ -776,9 +778,9 @@ object PigsRunner extends Logging {
     log.info("generating the map..")
     val world = ge.generateMap()
     
-    val statuses = for (k <- 1 to 3) yield {
+    val statuses = for (k <- 1 to 1) yield {
       
-      if (k == 2) {
+      if (k == 3) {
         log.debug("Putting leader %d to sleep." format leaders(0).get.port)
         leaders(0).get !? FaultToleranceMessages.Sleep()
       }
