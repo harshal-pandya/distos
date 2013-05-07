@@ -456,11 +456,12 @@ trait PigGameLogic extends AbstractNode with Logging {
         
         // Collect statuses
         buffer = cache.clone() -- neighborsByPort.keys
-        for (n <- neighbors ++ Seq(this)) 
+        for (n <- neighbors ++ Seq(this)){
+          log.debug(n.toString)
           (n !? Status()) match { 
             case WasHit(port, isHit) => buffer.put(port, isHit)
           }
-        
+        }
         log.debug("Leader sending db update with buffer size: %d" format buffer.size)
         // send the _other_ leader's port
         db !? Update(secondaryLeaderPort.get, buffer)
@@ -572,7 +573,7 @@ class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Loggin
     Thread.sleep(2000)
     log.debug("Done Sleeping... Check final statuses...")
 
-    val s: Map[Int, Boolean] = (leaders.flatten.head !? GetStatusMap()) match { 
+    val s: Map[Int, Boolean] = (leaders.flatten.head !? GetStatusMap()) match {
       case Statuses(map) => map.toMap
       case _ => Map()
     }
