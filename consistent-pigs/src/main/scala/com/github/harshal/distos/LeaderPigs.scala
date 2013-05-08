@@ -105,7 +105,7 @@ trait Database extends AbstractNode with Logging {
   import DatabaseMessages._
   import RingBasedElectionMessages._
 
-  def initMap(ports: Seq[Int]) = ports.foreach(p => db.put(p, true))
+  def initMap(ports: Seq[Int]) = ports.foreach(p => db.put(p, false))
 
   override def actions = super.actions ++ Seq(action)
   
@@ -119,8 +119,9 @@ trait Database extends AbstractNode with Logging {
       log.debug("Updating database with values:\n%s" format buffer.mkString("\n"))
       buffer.foreach { case (k,v) => db.update(k,v) }
       log.debug("Attempting to contact second leader on port: " + port)
-      val other = leaders(leaders.keys.filter(_ != port).head)
-      (other !? WhoIsLeader()) match { case LeaderId(id) => log.debug("Second leader is: " + id) }
+      val other = leaders(leaders.keys.filter(_ == port).head)
+      //(other !? WhoIsLeader()) match { case LeaderId(id) => log.debug("Second leader is: " + id) }
+
       log.debug("Successful contact with secondary leader.")
       other !? GameMessages.DatabasePush(buffer)
       sender ! Ack
@@ -128,7 +129,7 @@ trait Database extends AbstractNode with Logging {
     case Retrieve(id)     => sender ! db.get(id)
     case Clear()          => { db.clear(); sender ! Ack }
     case GetSize()        => sender ! Size(db.size)
-    case Register(port)   => { 
+    case Register(port)   => {
       leaders = leaders + (port -> select(Node("localhost", port), Symbol(port.toString)))
       log.debug("Added " + port + " as leader.")
       sender ! Ack
@@ -527,8 +528,6 @@ trait PigGameLogic extends AbstractNode with Logging {
         commit(buffer)
         log.debug("Commit")
 
-        if(Constants.DEBUG_MODE) println(port+" : "+cache)
-
         sender ! Ack
       }
     }
@@ -638,7 +637,7 @@ class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Loggin
     for (leader <- leaders.flatten)
       leader ! Trajectory(targetPos, timeToTarget)
 
-    Thread.sleep(2000)
+    Thread.sleep(10000)
     log.debug("Done Sleeping... Check final statuses...")
 
     val s: Map[Int, Boolean] = (leaders.flatten.head !? GetStatusMap()) match {
