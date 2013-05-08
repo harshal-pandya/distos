@@ -263,12 +263,17 @@ Our program can be run with:
 \pagebreak
 
 \section{Test cases:}
-We have a total of 6 test cases. 5 of these test whether the pigs respond to messages as expected. They are exemplified by the diagrams below. Note we produce a new leader at the start of each test case.\\
-The Leader Election test case, tests the algorithm by first selecting the leader and then killing a leader and running the election again to produce a new leader. This is repeated twice and it can be seen that a new leader is picked successfully in the event of failure. 
+\begin{enumerate}
+\item Leader Election Test : Tests the ring based leader election algorithm by first electing a leader and then bringing a leader down to trigger reelection 
+\item Cache Consistency test : Runs a round with 6 leaders and prints out the cache at the end of the round ( before database update) and after database update. Afther the update both the leaders should have the same cache.
+\item Fault tolerance Test : Sends a leader to sleep and check if the responsibility of the pigs is handed off correctly to the awake leader. 
+\item Dead Pig Test : Tests if the pigs dead in the previous round stay dead in subsequent rounds.
+\item Game Logic Tests 1, 2 and 3: Test for different scenarios displayed in figure 
+\end{enumerate}
 
-\includegraphics{figs/test1.pdf} \includegraphics{figs/test2.pdf}
-\includegraphics{figs/test3.pdf} \includegraphics{figs/test4.pdf}
-\includegraphics{figs/test5.pdf}
+%\includegraphics{figs/omni/test1.graffle} \includegraphics{figs/omni/test2.graffle}
+%\includegraphics{figs/omni/test3.graffle} \includegraphics{figs/omni/test4.graffle}
+%\includegraphics{figs/omni/test5.graffle}
 
 
 \section{Experiments}
