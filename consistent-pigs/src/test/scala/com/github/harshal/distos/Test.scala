@@ -137,31 +137,12 @@ class LeaderElectionTest extends Logging {
       None,
       None)
 
-    val target = 1
-
-    //    val statuses = for (k <- 1 to 3) yield {
-    //
-    // Start the game.
-    //
-
-    //assert db
+    val target = 0
 
     ge.launch(target, leaders.filterNot(x => (x == None || x.get.sleeping)), pigs, world, exit = false)
 
-    //      // Update Map
-    //      {
-    //        log.debug("Updating map with new positions.")
-    //        // remove all the pigs, keeping the columns
-    //        world.zipWithIndex.map {
-    //          case (Some(value), i) => if (value != COLUMN) world(i) = None
-    //          case (None, i)        => ()
-    //        }
-    //        // Add back the pigs in their new positions
-    //        pigs.filterNot(_.dead).map(p => world(p.currentPos) = Some(p.port))
-    //      }
-
-    //      status
-    //    }
+    println("Post-update : "+leaders(0).get.port+" : "+leaders(0).get.cache)
+    println("Post-update : "+leaders(1).get.port+" : "+leaders(1).get.cache)
 
     // Shutdown all the pigs...
     log.debug("Sending exits...")
@@ -234,50 +215,86 @@ class LeaderElectionTest extends Logging {
    * This tests if pigs dead once stay dead in the next rounds
    */
   @Test
-  def deadPigTest{
+  def deadPigTest() : Unit = {
 
-  }
-
-  // One pig on a world of size one.
-  @Test
-  def test1(): Unit = {
+    Constants.DEBUG_MODE=true
     enableLogging(true)
-    val numPigs = 1
+    val numPigs = 4
     val worldSizeRatio = 1
     val (pigs, ports) = startPigs(numPigs)
-    val leader = runLeaderElection(pigs, ports)
+
+    val part = partitionPigs(pigs, ports)
+    val (pigs1, ports1) = (part(0).map(_._1), part(0).map(_._2))
+    val (pigs2, ports2) = (part(1).map(_._1), part(1).map(_._2))
+
+    log.debug("Starting the database..")
+    startDb(ports)
+
+    setNeighborsInRingOrder(pigs1, ports1)
+    setNeighborsInRingOrder(pigs2, ports2)
+
+    log.debug("Sending DebugNeighbors..")
+    pigs.map(_ ! NeighborMessages.DebugNeighbors)
+
+    log.debug("Initiating an election in set 1..")
+    pigs1.head ! RingBasedElectionMessages.Election()
+    log.debug("Initiating an election in set 2..")
+    pigs2.head ! RingBasedElectionMessages.Election()
+
+    Thread.sleep(1500)
+
+    // Find the two leaders
+    val leaders = pigs.filter(_.amLeader).map(x => Some(x))
+
+    println("Leaders are "+leaders(0).get.port+" and "+leaders(1).get.port)
+
+    // Introduce the leaders:
+    leaders(0).get !? SecondaryLeaderMessages.SecondaryLeader(leaders(1).get.port)
+    leaders(1).get !? SecondaryLeaderMessages.SecondaryLeader(leaders(0).get.port)
+
+    leaders(0).get.cache
+    leaders(1).get.cache
 
     val ge = new GameEngine(pigs, worldSizeRatio)
 
     pigs(0) !? SetPosition(0)
+    pigs(1) !? SetPosition(1)
+    pigs(2) !? SetPosition(2)
+    pigs(3) !? SetPosition(3)
 
-    log.info("generating the map..")
-    val world = ge.generateMap(permutFn = identity)
+    println(pigs(0).port)
+    println(pigs(1).port)
 
-    val target = 0
+    val world = Array[Option[Int]](
+    Some(pigs(0).port),
+    Some(pigs(1).port),
+    Some(pigs(2).port),
+    Some(pigs(3).port))
 
-    log.info("launching...")
-    val statusMap = ge.launch(target, Seq(Some(leader)), pigs, world)
-    log.debug("statusMap: %s" format statusMap.mkString("\n"))
+    for (i <- Seq(0,2)){
+      val target = i
 
-    Thread.sleep(1500)
+      log.info("launching...")
+      val statusMap = ge.launch(target,leaders.filterNot(x => (x == None || x.get.sleeping)),pigs,world)
 
-    assert(statusMap.size == 1)
-    assert(statusMap.head._2)
+      if (target==0){
+        assert(statusMap(pigs(0).port))
+        assert(statusMap(pigs(1).port))
+        // remove all the pigs, keeping the columns
+        world.zipWithIndex.map {
+          case (Some(value), i) => if (value != COLUMN) world(i) = None
+          case (None, i)        =>
+        }
+        // Add back the pigs in their new positions
+        pigs.filterNot(_.dead).map(p => world(p.currentPos) = Some(p.port))
+      }
+      else{
+        assert(statusMap(pigs(0).port))
+        assert(statusMap(pigs(1).port))
+      }
 
-    log.debug("Sending exits..")
-    pigs.map(_ !? (50, Exit))
+    }
 
-    //
-    //    startPigs(numPigs)
-    //    val ge = new GameEngine(numPigs, 1)
-    //    val (pigs, world) = ge.generateMap(permutFn = identity)
-    //    val target = 0
-    //
-    //    val statuses = ge.launch(target, pigs, world)
-    //
-    //    assert(statuses.size == 1) // we only have one pig
-    //    assert(statuses.head._2)   // assert the pig was hit
   }
 
   @Test
@@ -338,6 +355,9 @@ class LeaderElectionTest extends Logging {
 
     log.info("launching...")
     val statusMap = ge.launch(target,leaders.filterNot(x => (x == None || x.get.sleeping)),pigs,world)
+
+    println(leaders(0).get.port+" : "+leaders(0).get.cache)
+    println(leaders(1).get.port+" : "+leaders(1).get.cache)
 
     //    ge.stats(target, statuses, world)
 
