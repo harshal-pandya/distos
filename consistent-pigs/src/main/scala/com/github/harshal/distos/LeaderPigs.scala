@@ -36,10 +36,12 @@ object Util {
   }
   implicit def AnyOps[X](x: X) = new AnyOps(x)
 
-  // Setup logging
-  Logging.configure { log =>
-    log.level = Level.DEBUG
-    log.console.enabled = true
+  def enableLogging(t:Boolean){
+    //  Setup logging
+    Logging.configure { log =>
+      log.level = Level.DEBUG
+      log.console.enabled = t
+    }
   }
 
   // Clock Utils
@@ -359,7 +361,7 @@ trait FaultTolerance extends AbstractNode {
             log.error("%s did not respond to Leader message" format secondaryLeaderPort)
             log.debug("%s: Synchronously flooding new neighbors" format port)
             for (n <- neighbors ++ Seq(this))
-              n !? NeighborMessages.UpdateNeighbors(cache.keys.toSeq)
+              n !? NeighborMessages.UpdateNeighbors((cache.keySet-port).toSeq)
             log.debug("%s: Done updating all minions." format port)
           }
           case _ =>  log.debug("Secondary leader is awake. %d continuing as normal." format port)
@@ -494,8 +496,7 @@ trait PigGameLogic extends AbstractNode with Logging {
     }
   }
   
- def commit(buffer: mutable.HashMap[Int,Boolean]) =
-    buffer.foreach { case (k,v) => cache.update(k,v) }
+ def commit(buffer: mutable.HashMap[Int,Boolean]) = buffer.foreach { case (k,v) => cache.update(k,v) }
 
   private val action: Any ~> Unit = {
 
@@ -505,7 +506,7 @@ trait PigGameLogic extends AbstractNode with Logging {
       if (amLeader && !sleeping) {
         flood(BirdApproaching(targetPos, clock.tick()))
         flood(BirdLanded(timeToTarget))
-        
+
         // Collect statuses
         buffer = cache.clone().filter(k=>(neighborsByPort.keySet+port)(k._1))
         log.debug("Buffer size before status flood: %d" format buffer.size)
@@ -518,10 +519,16 @@ trait PigGameLogic extends AbstractNode with Logging {
         log.debug("Leader sending db update with buffer size: %d" format buffer.size)
 
         Thread.sleep(1000)
+
+        if(Constants.DEBUG_MODE) println(port+" : "+cache)
+
         // send the _other_ leader's port
         db !? Update(secondaryLeaderPort.get, buffer)
         commit(buffer)
         log.debug("Commit")
+
+        if(Constants.DEBUG_MODE) println(port+" : "+cache)
+
         sender ! Ack
       }
     }
@@ -631,7 +638,7 @@ class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Loggin
     for (leader <- leaders.flatten)
       leader ! Trajectory(targetPos, timeToTarget)
 
-    Thread.sleep(2000)
+    Thread.sleep(100000)
     log.debug("Done Sleeping... Check final statuses...")
 
     val s: Map[Int, Boolean] = (leaders.flatten.head !? GetStatusMap()) match {
@@ -703,6 +710,7 @@ object Constants {
   val ELECTION_TIMEOUT = 300 //ms
   val DB_TIMEOUT = 300 //ms
   val CHECK_AWAKE_TIMEOUT = 100 //ms
+  var DEBUG_MODE = false
 }
 
 object PigsRunner extends Logging {
@@ -741,6 +749,7 @@ object PigsRunner extends Logging {
 
       
   def main(args: Array[String]): Unit = {
+    enableLogging(true)
     val numPigs = args(0).toInt
     val worldSizeRatio = args(1).toDouble
     
