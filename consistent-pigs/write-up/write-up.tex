@@ -131,8 +131,11 @@ a good property to have nonetheless.
     \caption{The commit protocol ensuring consistnt caches between leaders.\label{commit}}
 \end{figure}
 
-
 \subsection{Fault Tolerance}
+
+% This doesn't compile for some reason...
+%\includegraphics[height=2.7cm]{figs/num_minions.png}
+
 
 It may be the case that a leader may fall asleep. In this scenario it is
 necessary that the pigs which communicate with that leader move to the awake
@@ -279,62 +282,61 @@ We did 2 major experiments:
 
 \section{Sample Election Output:}
 
-The following is the log of 10 pigs being started and an election occurring.
+The following is the log of 10 pigs being started and two elections occurring over disjoint subsets of pigs.
 \tiny\begin{verbatim}
-[info] INFO  [2013-04-13 02:50:16,723] com.github.harshal.distos.PigsRunner: Started pig on port: 10001
-[info] INFO  [2013-04-13 02:50:16,725] com.github.harshal.distos.PigsRunner: Started pig on port: 10002
-[info] INFO  [2013-04-13 02:50:16,725] com.github.harshal.distos.PigsRunner: Started pig on port: 10003
-[info] INFO  [2013-04-13 02:50:16,725] com.github.harshal.distos.PigsRunner: Started pig on port: 10004
-[info] INFO  [2013-04-13 02:50:16,725] com.github.harshal.distos.PigsRunner: Started pig on port: 10005
-[info] INFO  [2013-04-13 02:50:16,725] com.github.harshal.distos.PigsRunner: Started pig on port: 10006
-[info] INFO  [2013-04-13 02:50:16,725] com.github.harshal.distos.PigsRunner: Started pig on port: 10007
-[info] INFO  [2013-04-13 02:50:16,725] com.github.harshal.distos.PigsRunner: Started pig on port: 10008
-[info] INFO  [2013-04-13 02:50:16,726] com.github.harshal.distos.PigsRunner: Started pig on port: 10009
-[info] INFO  [2013-04-13 02:50:16,726] com.github.harshal.distos.PigsRunner: Started pig on port: 10010
-[info] DEBUG [2013-04-13 02:50:16,744] com.github.harshal.distos.Pig: 10001 recieved neighbor list: SetNeighbors(WrappedArray(10002, 10003, 10004, 10005, 10006, 10007, 10008, 10009, 10010))
-[info] DEBUG [2013-04-13 02:50:16,803] com.github.harshal.distos.Pig: 10002 recieved neighbor list: SetNeighbors(WrappedArray(10003, 10004, 10005, 10006, 10007, 10008, 10009, 10010, 10001))
-[info] DEBUG [2013-04-13 02:50:16,834] com.github.harshal.distos.Pig: 10003 recieved neighbor list: SetNeighbors(WrappedArray(10004, 10005, 10006, 10007, 10008, 10009, 10010, 10001, 10002))
-[info] DEBUG [2013-04-13 02:50:16,866] com.github.harshal.distos.Pig: 10004 recieved neighbor list: SetNeighbors(WrappedArray(10005, 10006, 10007, 10008, 10009, 10010, 10001, 10002, 10003))
-[info] DEBUG [2013-04-13 02:50:16,898] com.github.harshal.distos.Pig: 10005 recieved neighbor list: SetNeighbors(WrappedArray(10006, 10007, 10008, 10009, 10010, 10001, 10002, 10003, 10004))
-[info] DEBUG [2013-04-13 02:50:16,927] com.github.harshal.distos.Pig: 10006 recieved neighbor list: SetNeighbors(WrappedArray(10007, 10008, 10009, 10010, 10001, 10002, 10003, 10004, 10005))
-[info] DEBUG [2013-04-13 02:50:16,956] com.github.harshal.distos.Pig: 10007 recieved neighbor list: SetNeighbors(WrappedArray(10008, 10009, 10010, 10001, 10002, 10003, 10004, 10005, 10006))
-[info] DEBUG [2013-04-13 02:50:16,988] com.github.harshal.distos.Pig: 10008 recieved neighbor list: SetNeighbors(WrappedArray(10009, 10010, 10001, 10002, 10003, 10004, 10005, 10006, 10007))
-[info] DEBUG [2013-04-13 02:50:17,016] com.github.harshal.distos.Pig: 10009 recieved neighbor list: SetNeighbors(WrappedArray(10010, 10001, 10002, 10003, 10004, 10005, 10006, 10007, 10008))
-[info] DEBUG [2013-04-13 02:50:17,045] com.github.harshal.distos.Pig: 10010 recieved neighbor list: SetNeighbors(WrappedArray(10001, 10002, 10003, 10004, 10005, 10006, 10007, 10008, 10009))
-[info] DEBUG [2013-04-13 02:50:17,078] com.github.harshal.distos.PigsRunner: Sending DebugNeighbors..
-[info] DEBUG [2013-04-13 02:50:17,079] com.github.harshal.distos.PigsRunner: Initiating an election..
-[info] INFO  [2013-04-13 02:50:17,081] com.github.harshal.distos.Pig: 10001 Neighbors: 6aa0b301,e86b6882,304d79d2,0d6111de,1a57e8be,2108d235,c3923891,70de70bf,3a1c105f
-[info] INFO  [2013-04-13 02:50:17,081] com.github.harshal.distos.Pig: 10007 Neighbors: c3923891,70de70bf,3a1c105f,32bc8116,6aa0b301,e86b6882,304d79d2,0d6111de,1a57e8be
-[info] INFO  [2013-04-13 02:50:17,081] com.github.harshal.distos.Pig: 10005 Neighbors: 1a57e8be,2108d235,c3923891,70de70bf,3a1c105f,32bc8116,6aa0b301,e86b6882,304d79d2
-[info] INFO  [2013-04-13 02:50:17,081] com.github.harshal.distos.Pig: 10008 Neighbors: 70de70bf,3a1c105f,32bc8116,6aa0b301,e86b6882,304d79d2,0d6111de,1a57e8be,2108d235
-[info] INFO  [2013-04-13 02:50:17,081] com.github.harshal.distos.Pig: 10002 Neighbors: e86b6882,304d79d2,0d6111de,1a57e8be,2108d235,c3923891,70de70bf,3a1c105f,32bc8116
-[info] INFO  [2013-04-13 02:50:17,081] com.github.harshal.distos.Pig: 10009 Neighbors: 3a1c105f,32bc8116,6aa0b301,e86b6882,304d79d2,0d6111de,1a57e8be,2108d235,c3923891
-[info] INFO  [2013-04-13 02:50:17,081] com.github.harshal.distos.Pig: 10004 Neighbors: 0d6111de,1a57e8be,2108d235,c3923891,70de70bf,3a1c105f,32bc8116,6aa0b301,e86b6882
-[info] INFO  [2013-04-13 02:50:17,081] com.github.harshal.distos.Pig: 10010 Neighbors: 32bc8116,6aa0b301,e86b6882,304d79d2,0d6111de,1a57e8be,2108d235,c3923891,70de70bf
-[info] INFO  [2013-04-13 02:50:17,081] com.github.harshal.distos.Pig: 10006 Neighbors: 2108d235,c3923891,70de70bf,3a1c105f,32bc8116,6aa0b301,e86b6882,304d79d2,0d6111de
-[info] INFO  [2013-04-13 02:50:17,081] com.github.harshal.distos.Pig: 10003 Neighbors: 304d79d2,0d6111de,1a57e8be,2108d235,c3923891,70de70bf,3a1c105f,32bc8116,6aa0b301
-[info] DEBUG [2013-04-13 02:50:17,095] com.github.harshal.distos.Pig: Election from e86b6882 -> 304d79d2, succeeded...
-[info] DEBUG [2013-04-13 02:50:17,095] com.github.harshal.distos.Pig: Election from 32bc8116 -> 6aa0b301, succeeded...
-[info] DEBUG [2013-04-13 02:50:17,095] com.github.harshal.distos.Pig: Election from 6aa0b301 -> e86b6882, succeeded...
-[info] DEBUG [2013-04-13 02:50:17,097] com.github.harshal.distos.Pig: Election from 304d79d2 -> 0d6111de, succeeded...
-[info] DEBUG [2013-04-13 02:50:17,098] com.github.harshal.distos.Pig: Election from 0d6111de -> 1a57e8be, succeeded...
-[info] DEBUG [2013-04-13 02:50:17,100] com.github.harshal.distos.Pig: Election from 1a57e8be -> 2108d235, succeeded...
-[info] DEBUG [2013-04-13 02:50:17,102] com.github.harshal.distos.Pig: Election from 2108d235 -> c3923891, succeeded...
-[info] DEBUG [2013-04-13 02:50:17,104] com.github.harshal.distos.Pig: Election from c3923891 -> 70de70bf, succeeded...
-[info] DEBUG [2013-04-13 02:50:17,106] com.github.harshal.distos.Pig: Election from 70de70bf -> 3a1c105f, succeeded...
-[info] INFO  [2013-04-13 02:50:17,107] com.github.harshal.distos.Pig: Election 1d33c08b finished: e86b6882 is the leader.
-[info] DEBUG [2013-04-13 02:50:17,108] com.github.harshal.distos.Pig: Election from 3a1c105f -> 32bc8116, succeeded...
-[info] DEBUG [2013-04-13 02:50:17,110] com.github.harshal.distos.Pig: 6aa0b301 setting leader to e86b6882
-[info] DEBUG [2013-04-13 02:50:17,113] com.github.harshal.distos.Pig: e86b6882 setting leader to e86b6882
-[info] DEBUG [2013-04-13 02:50:17,117] com.github.harshal.distos.Pig: 304d79d2 setting leader to e86b6882
-[info] DEBUG [2013-04-13 02:50:17,120] com.github.harshal.distos.Pig: 0d6111de setting leader to e86b6882
-[info] DEBUG [2013-04-13 02:50:17,123] com.github.harshal.distos.Pig: 1a57e8be setting leader to e86b6882
-[info] DEBUG [2013-04-13 02:50:17,126] com.github.harshal.distos.Pig: 2108d235 setting leader to e86b6882
-[info] DEBUG [2013-04-13 02:50:17,129] com.github.harshal.distos.Pig: c3923891 setting leader to e86b6882
-[info] DEBUG [2013-04-13 02:50:17,132] com.github.harshal.distos.Pig: 70de70bf setting leader to e86b6882
-[info] DEBUG [2013-04-13 02:50:17,135] com.github.harshal.distos.Pig: 3a1c105f setting leader to e86b6882
-[info] DEBUG [2013-04-13 02:50:17,136] com.github.harshal.distos.Pig: 32bc8116 setting leader to e86b6882
+[info] DEBUG [2013-05-08 00:46:51,649] com.github.harshal.distos.PigsRunner: Ring arranger ids: 10001, 10002, 10003, 10004
+[info] DEBUG [2013-05-08 00:46:51,658] com.github.harshal.distos.Pig: 10001 received neighbor list: SetNeighbors(WrappedArray(10002, 10003, 10004))
+[info] DEBUG [2013-05-08 00:46:51,698] com.github.harshal.distos.Pig: 10002 received neighbor list: SetNeighbors(WrappedArray(10003, 10004, 10001))
+[info] DEBUG [2013-05-08 00:46:51,709] com.github.harshal.distos.Pig: 10003 received neighbor list: SetNeighbors(WrappedArray(10004, 10001, 10002))
+[info] DEBUG [2013-05-08 00:46:51,720] com.github.harshal.distos.Pig: 10004 received neighbor list: SetNeighbors(WrappedArray(10001, 10002, 10003))
+[info] DEBUG [2013-05-08 00:46:51,731] com.github.harshal.distos.PigsRunner: Ring arranger ids: 10005, 10006, 10007, 10008
+[info] DEBUG [2013-05-08 00:46:51,732] com.github.harshal.distos.Pig: 10005 received neighbor list: SetNeighbors(WrappedArray(10006, 10007, 10008))
+[info] DEBUG [2013-05-08 00:46:51,744] com.github.harshal.distos.Pig: 10006 received neighbor list: SetNeighbors(WrappedArray(10007, 10008, 10005))
+[info] DEBUG [2013-05-08 00:46:51,754] com.github.harshal.distos.Pig: 10007 received neighbor list: SetNeighbors(WrappedArray(10008, 10005, 10006))
+[info] DEBUG [2013-05-08 00:46:51,764] com.github.harshal.distos.Pig: 10008 received neighbor list: SetNeighbors(WrappedArray(10005, 10006, 10007))
+[info] DEBUG [2013-05-08 00:46:51,775] com.github.harshal.distos.PigsRunner: Sending DebugNeighbors..
+[info] DEBUG [2013-05-08 00:46:51,776] com.github.harshal.distos.PigsRunner: Initiating an election in set 1..
+[info] INFO  [2013-05-08 00:46:51,778] com.github.harshal.distos.Pig: 10008 Neighbors: 46539603,3fbf1e64,dfc68a75
+[info] INFO  [2013-05-08 00:46:51,778] com.github.harshal.distos.Pig: 10003 Neighbors: f711b65b,947cf6b5,d4f82124
+[info] INFO  [2013-05-08 00:46:51,778] com.github.harshal.distos.Pig: 10005 Neighbors: 3fbf1e64,dfc68a75,2d88ed78
+[info] INFO  [2013-05-08 00:46:51,778] com.github.harshal.distos.Pig: 10001 Neighbors: d4f82124,0691b452,f711b65b
+[info] INFO  [2013-05-08 00:46:51,778] com.github.harshal.distos.Pig: 10007 Neighbors: 2d88ed78,46539603,3fbf1e64
+[info] INFO  [2013-05-08 00:46:51,778] com.github.harshal.distos.Pig: 10002 Neighbors: 0691b452,f711b65b,947cf6b5
+[info] DEBUG [2013-05-08 00:46:51,778] com.github.harshal.distos.PigsRunner: Initiating an election in set 2..
+[info] INFO  [2013-05-08 00:46:51,778] com.github.harshal.distos.Pig: 10006 Neighbors: dfc68a75,2d88ed78,46539603
+[info] INFO  [2013-05-08 00:46:51,778] com.github.harshal.distos.Pig: 10004 Neighbors: 947cf6b5,d4f82124,0691b452
+[info] DEBUG [2013-05-08 00:46:51,796] com.github.harshal.distos.Pig: Election from 947cf6b5 -> d4f82124, succeeded...
+[info] DEBUG [2013-05-08 00:46:51,796] com.github.harshal.distos.Pig: Election from 46539603 -> 3fbf1e64, succeeded...
+[info] DEBUG [2013-05-08 00:46:51,797] com.github.harshal.distos.Pig: Election from d4f82124 -> 0691b452, succeeded...
+[info] DEBUG [2013-05-08 00:46:51,797] com.github.harshal.distos.Pig: Election from 3fbf1e64 -> dfc68a75, succeeded...
+[info] DEBUG [2013-05-08 00:46:51,799] com.github.harshal.distos.Pig: Election from dfc68a75 -> 2d88ed78, succeeded...
+[info] DEBUG [2013-05-08 00:46:51,800] com.github.harshal.distos.Pig: Election from 0691b452 -> f711b65b, succeeded...
+[info] INFO  [2013-05-08 00:46:51,800] com.github.harshal.distos.Pig: Election 8d3f0588 finished: dfc68a75 is the leader.
+[info] INFO  [2013-05-08 00:46:51,800] com.github.harshal.distos.Pig: Election aa40338e finished: f711b65b is the leader.
+[info] DEBUG [2013-05-08 00:46:51,803] com.github.harshal.distos.Pig: Election from 2d88ed78 -> 46539603, succeeded...
+[info] DEBUG [2013-05-08 00:46:51,803] com.github.harshal.distos.Pig: Election from f711b65b -> 947cf6b5, succeeded...
+[info] DEBUG [2013-05-08 00:46:51,806] com.github.harshal.distos.Pig: 3fbf1e64 setting leader to dfc68a75
+[info] DEBUG [2013-05-08 00:46:51,806] com.github.harshal.distos.Pig: d4f82124 setting leader to f711b65b
+[info] DEBUG [2013-05-08 00:46:51,809] com.github.harshal.distos.Pig: 0691b452 setting leader to f711b65b
+[info] DEBUG [2013-05-08 00:46:51,809] com.github.harshal.distos.Pig: dfc68a75 setting leader to dfc68a75
+[info] DEBUG [2013-05-08 00:46:51,809] com.github.harshal.distos.Pig: 10007 initiating db connection.
+[info] DEBUG [2013-05-08 00:46:51,813] com.github.harshal.distos.Pig: f711b65b setting leader to f711b65b
+[info] DEBUG [2013-05-08 00:46:51,813] com.github.harshal.distos.Pig: 10004 initiating db connection.
+[info] DEBUG [2013-05-08 00:46:51,817] com.github.harshal.distos.DB: Added 10007 as leader.
+[info] DEBUG [2013-05-08 00:46:51,818] com.github.harshal.distos.DB: Added 10004 as leader.
+[info] DEBUG [2013-05-08 00:46:51,821] com.github.harshal.distos.Pig: 947cf6b5 setting leader to f711b65b
+[info] DEBUG [2013-05-08 00:46:51,822] com.github.harshal.distos.Pig: 2d88ed78 setting leader to dfc68a75
+[info] DEBUG [2013-05-08 00:46:51,830] com.github.harshal.distos.Pig: 46539603 setting leader to dfc68a75
+[info] DEBUG [2013-05-08 00:46:53,286] com.github.harshal.distos.Pig: Leader (10004) set secondary leader to: 10007
+[info] DEBUG [2013-05-08 00:46:53,287] com.github.harshal.distos.Pig: Leader (10007) set secondary leader to: 10004
+[info] INFO  [2013-05-08 00:46:53,289] com.github.harshal.distos.PigsRunner: generating the map..
+[info] DEBUG [2013-05-08 00:46:53,305] com.github.harshal.distos.Pig: Secondary leader is awake. 10007 continuing as normal.
+[info] DEBUG [2013-05-08 00:46:53,305] com.github.harshal.distos.Pig: Secondary leader is awake. 10004 continuing as normal.
+[info] DEBUG [2013-05-08 00:46:53,305] com.github.harshal.distos.Pig: 10004: Ack'ing CheckIfAwake.
+[info] DEBUG [2013-05-08 00:46:53,305] com.github.harshal.distos.Pig: 10007: Ack'ing CheckIfAwake.
 \end{verbatim}
+
+
 \normalsize
 
 \end{document}
