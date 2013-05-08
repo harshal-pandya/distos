@@ -377,10 +377,41 @@ class LeaderElectionTest extends Logging {
 
   @Test
   def test3() = {
-
+    enableLogging(true)
     val numPigs = 2
     val (pigs, ports) = startPigs(numPigs)
-    val leader = runLeaderElection(pigs,ports)
+    val part = partitionPigs(pigs, ports)
+    val (pigs1, ports1) = (part(0).map(_._1), part(0).map(_._2))
+    val (pigs2, ports2) = (part(1).map(_._1), part(1).map(_._2))
+
+    log.debug("Starting the database..")
+    startDb(ports)
+
+    setNeighborsInRingOrder(pigs1, ports1)
+    setNeighborsInRingOrder(pigs2, ports2)
+
+    log.debug("Sending DebugNeighbors..")
+    pigs.map(_ ! NeighborMessages.DebugNeighbors)
+
+    log.debug("Initiating an election in set 1..")
+    pigs1.head ! RingBasedElectionMessages.Election()
+    log.debug("Initiating an election in set 2..")
+    pigs2.head ! RingBasedElectionMessages.Election()
+
+    Thread.sleep(1500)
+
+    // Find the two leaders
+    val leaders = pigs.filter(_.amLeader).map(x => Some(x))
+
+    println("Leaders are "+leaders(0).get.port+" and "+leaders(1).get.port)
+
+    // Introduce the leaders:
+    leaders(0).get !? SecondaryLeaderMessages.SecondaryLeader(leaders(1).get.port)
+    leaders(1).get !? SecondaryLeaderMessages.SecondaryLeader(leaders(0).get.port)
+
+    leaders(0).get.cache
+    leaders(1).get.cache
+
     val ge = new GameEngine(pigs, 2)
 
 
@@ -395,7 +426,7 @@ class LeaderElectionTest extends Logging {
 
     val target = 0
 
-    val statuses = ge.launch(target,Seq(Some(leader)), pigs, world)
+    val statuses = ge.launch(target,leaders.filterNot(x => (x == None || x.get.sleeping)),pigs,world)
 
     //    ge.stats(target, statuses, world)
 
@@ -493,37 +524,7 @@ class LeaderElectionTest extends Logging {
 
   }
   //
-  @Test
-  def test5() = {
 
-    val numPigs = 1
-    val (pigs, ports) = startPigs(numPigs)
-    val leader = runLeaderElection(pigs,ports)
-
-    pigs(0) !? SetPosition(1)
-
-    val world = Seq(
-      Some(COLUMN),
-      Some(pigs(0).port),
-      None)
-
-
-    val ge = new GameEngine(pigs,3)
-    val target = 0
-
-    val statuses = ge.launch(target,Seq(Some(leader)), pigs, world)
-
-    //    ge.stats(target, statuses, world)
-
-    // we only have one pig
-    assert(statuses.size == 1)
-
-    // the first one should move 1 -> 2
-    val pos = pigs(0)!?GetPosition() match { case Position(pos) => pos; case _ => -1}
-    assert(pos == 2, "incorrect: " + statuses.head._1) //moved
-    assert(statuses(pigs(0).port) == false)   // wasn't hit
-
-  }
 
   def runLeaderElection(pigs:Seq[Pig],ports:Seq[Int])={
     setNeighborsInRingOrder(pigs, ports)
