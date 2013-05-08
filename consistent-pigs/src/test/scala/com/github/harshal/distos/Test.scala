@@ -79,7 +79,7 @@ class LeaderElectionTest extends Logging {
   }
 
   @Test
-  def cacheConsistency(): Unit = {
+  def testCacheConsistency(): Unit = {
     Constants.DEBUG_MODE = true
     enableLogging(false)
     val numPigs = 6
@@ -170,7 +170,7 @@ class LeaderElectionTest extends Logging {
   }
 
   @Test
-  def faultTolerance(): Unit = {
+  def testFaultTolerance(): Unit = {
     enableLogging(false)
     val numPigs = 6
     val (pigs, ports) = startPigs(numPigs)
@@ -348,7 +348,7 @@ class LeaderElectionTest extends Logging {
     assert(statusMap(pigs(0).port))   // assert the first pig was hit
 
     // the second one should have moved
-    val pos = pigs(1)!?GetPosition() match { case Position(pos) => pos; case _ => -1}
+    val pos = pigs(1) !? GetPosition() match { case Position(pos) => pos; case _ => -1}
     assert(pos == 3, "incorrect: " + statusMap(pigs(1).port)) // assert the second pig moved from 3 -> 2
     println(statusMap)
     assert(statusMap(pigs(1).port) == false) // assert the second pig was not killed

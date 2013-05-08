@@ -109,7 +109,7 @@ trait Database extends AbstractNode with Logging {
 
   override def actions = super.actions ++ Seq(action)
   
-  @volatile var leaders = Set.empty[AbstractActor]
+  @volatile var leaders = Map[Int,AbstractActor]()
   
   val db: ConcurrentMap[Int, Boolean] = new ConcurrentHashMap[Int, Boolean]
   
@@ -119,7 +119,7 @@ trait Database extends AbstractNode with Logging {
       log.debug("Updating database with values:\n%s" format buffer.mkString("\n"))
       buffer.foreach { case (k,v) => db.update(k,v) }
       log.debug("Attempting to contact second leader on port: " + port)
-      val other = select(Node("localhost", port), Symbol(port.toString))
+      val other = leaders(leaders.keys.filter(_ != port).head)
       (other !? WhoIsLeader()) match { case LeaderId(id) => log.debug("Second leader is: " + id) }
       log.debug("Successful contact with secondary leader.")
       other !? GameMessages.DatabasePush(buffer)
@@ -129,7 +129,7 @@ trait Database extends AbstractNode with Logging {
     case Clear()          => { db.clear(); sender ! Ack }
     case GetSize()        => sender ! Size(db.size)
     case Register(port)   => { 
-      leaders = leaders + select(Node("localhost", port), Symbol(port.toString))
+      leaders = leaders + (port -> select(Node("localhost", port), Symbol(port.toString)))
       log.debug("Added " + port + " as leader.")
       sender ! Ack
     }
@@ -638,7 +638,7 @@ class GameEngine(pigs: Seq[AbstractNode], worldSizeRatio: Double) extends Loggin
     for (leader <- leaders.flatten)
       leader ! Trajectory(targetPos, timeToTarget)
 
-    Thread.sleep(100000)
+    Thread.sleep(2000)
     log.debug("Done Sleeping... Check final statuses...")
 
     val s: Map[Int, Boolean] = (leaders.flatten.head !? GetStatusMap()) match {
